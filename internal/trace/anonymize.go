@@ -54,27 +54,27 @@ var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`
 func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
 
 var (
-	reSIDParam    = regexp.MustCompile(`(?i)\bsid=[0-9A-Za-z]+`)
-	reSIDTag      = regexp.MustCompile(`<SID>([^<]*)</SID>`)
-	reChallenge   = regexp.MustCompile(`<Challenge>[^<]*</Challenge>`)
-	reResponse    = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
-	reUser        = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
-	reExportName  = regexp.MustCompile(`\bPhonebookExportName=([^&\s"'<]*)`)
-	reActiveUsers = regexp.MustCompile(`(?s)("activeUsers"\s*:\s*)\[.*?\]`)
-	reJSONSecret  = regexp.MustCompile(`("(?:username|challenge)"\s*:\s*)"(?:[^"\\]|\\.)*"`)
-	reDeviceLog   = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription)>`)
-	reSerial      = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
-	reUDN         = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
-	reMPSID       = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
-	rePBURL       = regexp.MustCompile(`(<NewPhonebookURL>\s*[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/<]*@)?)([^:/?#<\s]+)`)
-	rePhonebook   = regexp.MustCompile(`(?s)<phonebook\b([^>]*)>(.*?)</phonebook>`)
-	reNameAttr    = regexp.MustCompile(`\bname="([^"]*)"`)
-	rePBField     = regexp.MustCompile(`<(realName|number|email|imageURL)(\s[^>]*)?>([^<]+)</(realName|number|email|imageURL)>`)
-	reTRPBName    = regexp.MustCompile(`(<NewPhonebookName>)([^<]*)(</NewPhonebookName>)`)
-	reMAC         = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
-	reIPv4        = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	reIPv6        = regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,5})?|::[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}`)
-	reAuthParams  = regexp.MustCompile(`(?i)\b(nonce|opaque)="[^"]*"`)
+	reSIDParam   = regexp.MustCompile(`(?i)\bsid=[0-9A-Za-z]+`)
+	reSIDTag     = regexp.MustCompile(`<SID>([^<]*)</SID>`)
+	reChallenge  = regexp.MustCompile(`<Challenge>[^<]*</Challenge>`)
+	reResponse   = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
+	reUser       = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
+	reExportName = regexp.MustCompile(`\bPhonebookExportName=([^&\s"'<]*)`)
+	reJSONKey    = regexp.MustCompile(`(?i)(?:"|&quot;)(?:activeUsers|users|username|user|name|UID|challenge)(?:"|&quot;)\s*:\s*`)
+	reExportPH   = regexp.MustCompile(`^(?:%3C|<)PHONEBOOK-\d+(?:%3E|>)$`)
+	reDeviceLog  = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription)>`)
+	reSerial     = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
+	reUDN        = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
+	reMPSID      = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
+	rePBURL      = regexp.MustCompile(`(<NewPhonebookURL>\s*[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/<]*@)?)([^:/?#<\s]+)`)
+	rePhonebook  = regexp.MustCompile(`(?s)<phonebook\b([^>]*)>(.*?)</phonebook>`)
+	reNameAttr   = regexp.MustCompile(`\bname="([^"]*)"`)
+	rePBField    = regexp.MustCompile(`<(realName|number|email|imageURL)(\s[^>]*)?>([^<]+)</(realName|number|email|imageURL)>`)
+	reTRPBName   = regexp.MustCompile(`(<NewPhonebookName>)([^<]*)(</NewPhonebookName>)`)
+	reMAC        = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
+	reIPv4       = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	reIPv6       = regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,5})?|::[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}`)
+	reAuthParams = regexp.MustCompile(`(?i)\b(nonce|opaque)="[^"]*"`)
 )
 
 var fieldKinds = map[string]string{"realName": "NAME", "number": "NUMBER", "email": "EMAIL", "imageURL": "URL"}
@@ -133,13 +133,12 @@ func (a *Anonymizer) Apply(s string) string {
 	s = reExportName.ReplaceAllStringFunc(s, func(m string) string {
 		v := reExportName.FindStringSubmatch(m)[1]
 		name, err := url.QueryUnescape(v)
-		if v == "" || (err == nil && !a.anonymizeName(name)) || strings.HasPrefix(v, "%3C") {
+		if v == "" || (err == nil && !a.anonymizeName(name)) || reExportPH.MatchString(v) {
 			return m
 		}
 		return "PhonebookExportName=" + url.QueryEscape(a.placeholder("PHONEBOOK", name))
 	})
-	s = reActiveUsers.ReplaceAllString(s, `${1}["<REDACTED>"]`)
-	s = reJSONSecret.ReplaceAllString(s, `${1}"<REDACTED>"`)
+	s = redactJSON(s)
 	s = reDeviceLog.ReplaceAllString(s, "<$1><REDACTED></$2>")
 	s = reSerial.ReplaceAllString(s, "<$1><SERIAL></$2>")
 	s = reUDN.ReplaceAllStringFunc(s, func(m string) string {
@@ -200,4 +199,82 @@ func (a *Anonymizer) Header(name, value string) string {
 		value = reAuthParams.ReplaceAllString(value, `$1="<REDACTED>"`)
 	}
 	return a.Apply(value)
+}
+
+// quoteAt returns the length of a string-quote token at s[i:] ("\"" or "&quot;"), or 0.
+func quoteAt(s string, i int) int {
+	switch {
+	case strings.HasPrefix(s[i:], "&quot;"):
+		return len("&quot;")
+	case s[i] == '"':
+		return 1
+	}
+	return 0
+}
+
+// scanString returns the index after the string that opens at s[i] (a quote token), honoring
+// backslash escapes. An unterminated string extends to the end.
+func scanString(s string, i int) int {
+	q := s[i : i+quoteAt(s, i)]
+	for j := i + len(q); j < len(s); {
+		if s[j] == '\\' && j+1 < len(s) {
+			j += 2
+			continue
+		}
+		if strings.HasPrefix(s[j:], q) {
+			return j + len(q)
+		}
+		j++
+	}
+	return len(s)
+}
+
+// scanArray returns the index after the array that opens at s[i] == '[', ignoring brackets
+// inside strings. An unterminated array extends to the end.
+func scanArray(s string, i int) int {
+	depth := 0
+	for j := i; j < len(s); {
+		if quoteAt(s, j) > 0 {
+			j = scanString(s, j)
+			continue
+		}
+		switch s[j] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return j + 1
+			}
+		}
+		j++
+	}
+	return len(s)
+}
+
+// redactJSON removes values of JSON keys that carry user names or login material, in plain
+// and HTML-escaped (&quot;) form: array values are replaced entirely, string values by a
+// placeholder.
+func redactJSON(s string) string {
+	var out strings.Builder
+	pos := 0
+	for _, m := range reJSONKey.FindAllStringIndex(s, -1) {
+		if m[0] < pos || m[1] >= len(s) {
+			continue
+		}
+		j := m[1]
+		switch {
+		case s[j] == '[':
+			end := scanArray(s, j)
+			out.WriteString(s[pos:j] + `["<REDACTED>"]`)
+			pos = end
+		case quoteAt(s, j) > 0:
+			end := scanString(s, j)
+			q := s[j : j+quoteAt(s, j)]
+			out.WriteString(s[pos:j] + q + "<REDACTED>" + q)
+			pos = end
+		}
+	}
+	out.WriteString(s[pos:])
+	return out.String()
 }

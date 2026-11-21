@@ -2,6 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +34,11 @@ type result struct {
 
 func runProbe(t *testing.T, b *fritzfake.Box, stdin string) result {
 	t.Helper()
+	return runProbeWith(t, b, stdin, nil)
+}
+
+func runProbeWith(t *testing.T, b *fritzfake.Box, stdin string, tweak func(*Env, *httptest.Server)) result {
+	t.Helper()
 	srv := b.Start(t)
 	out := filepath.Join(t.TempDir(), "trace.txt")
 	var so, se bytes.Buffer
@@ -41,6 +50,9 @@ func runProbe(t *testing.T, b *fritzfake.Box, stdin string) result {
 		Now:        func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) },
 		HTTPClient: srv.Client(),
 		TR064URL:   srv.URL,
+	}
+	if tweak != nil {
+		tweak(&env, srv)
 	}
 	code := run([]string{"--host", srv.URL, "--user", "alice", "-o", out, "--timeout", "10s"}, env)
 	tr, _ := os.ReadFile(out)
@@ -175,6 +187,73 @@ func TestProbe_KeepsImportAnswerButRedactsIt(t *testing.T) {
 	for _, leak := range []string{"Maria Example", "boxuser", "AABBCC", "fedcba9876543210"} {
 		if strings.Contains(r.trace, leak) {
 			t.Errorf("trace contains %q", leak)
+		}
+	}
+}
+
+func TestProbe_NonTestBooksNeverRecorded(t *testing.T) {
+	hidden := fritzfake.Phonebook{ID: 0, Name: "Hidden Book", XML: []byte(`<?xml version="1.0"?><phonebooks><phonebook name='Hidden Book'><contact><carddav_uid>uid-secret-123</carddav_uid><person><realName><![CDATA[Cdata Person]]></realName><vanity>vanity-xyz</vanity></person></contact></phonebook></phonebooks>`)}
+	r := runProbe(t, box(hidden, testPB), "yes\ny\ny\n")
+	if r.code != 0 {
+		t.Fatalf("exit %d, stderr %q", r.code, r.err)
+	}
+	for _, leak := range []string{"Cdata Person", "uid-secret-123", "vanity-xyz", "Hidden", "carddav"} {
+		if strings.Contains(r.trace, leak) {
+			t.Errorf("trace contains %q", leak)
+		}
+	}
+	if !strings.Contains(r.trace, "[response body omitted:") {
+		t.Error("non-Test export bodies should be omitted")
+	}
+	if !strings.Contains(r.trace, "ID 0: export ok, 1 contacts") || !strings.Contains(r.trace, "non-Test phonebook contact counts unchanged") {
+		t.Error("counts missing")
+	}
+}
+
+func TestProbe_RedirectedImportAnswerSummarized(t *testing.T) {
+	b := box(privat, testPB)
+	b.ImportRedirect = true
+	r := runProbe(t, b, "yes\ny\ny\n")
+	for _, leak := range []string{"Maria Example", "Max Muster", "boxuser", "AABBCC"} {
+		if strings.Contains(r.trace, leak) {
+			t.Errorf("trace contains %q", leak)
+		}
+	}
+	if !strings.Contains(r.trace, "[HTML body omitted:") {
+		t.Error("redirected login page should be summarized")
+	}
+}
+
+func TestProbe_PhonebookURLHostnameRedacted(t *testing.T) {
+	b := box(privat, testPB)
+	b.PhonebookHost = "box-of-maria.example.test"
+	r := runProbeWith(t, b, "yes\ny\ny\n", func(env *Env, srv *httptest.Server) {
+		addr := srv.Listener.Addr().String()
+		env.HTTPClient = &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		}}}
+	})
+	if r.code != 0 {
+		t.Fatalf("exit %d, stderr %q", r.code, r.err)
+	}
+	if strings.Contains(r.trace, "maria") {
+		t.Errorf("trace contains the host name")
+	}
+	if !strings.Contains(r.trace, "phonebook URL fetch: status 200") {
+		t.Error("URL fetch not performed")
+	}
+}
+
+func TestProbe_AbortsWhenGetPhonebookFails(t *testing.T) {
+	for _, bad := range []int{0, 1} {
+		b := box(privat, testPB)
+		b.BrokenBookID = &bad
+		r := runProbe(t, b, "yes\ny\ny\n")
+		if r.code == 0 {
+			t.Errorf("bad=%d: exit 0, want failure", bad)
+		}
+		if got := b.Imports(); len(got) != 0 {
+			t.Errorf("bad=%d: imports = %v", bad, got)
 		}
 	}
 }

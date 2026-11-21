@@ -37,6 +37,7 @@ type entry struct {
 	resBody    []byte
 	durationMS int64
 	err        string
+	truncate   bool // cap the anonymized response body at maxKeptHTML
 }
 
 // NewRecorder wraps next (http.DefaultTransport if nil).
@@ -57,6 +58,10 @@ func (r *Recorder) Note(format string, args ...any) {
 // RoundTrip implements http.RoundTripper.
 func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e := entry{method: req.Method, url: req.URL.String(), reqHeader: req.Header.Clone()}
+	omit := req.Context().Value(omitBodyKey{}) != nil
+	keep := req.Context().Value(keepBodyKey{}) != nil
+	first := req.Response == nil // redirect targets are never kept in full
+	reqLen := 0
 	if req.Body != nil {
 		b, err := io.ReadAll(req.Body)
 		_ = req.Body.Close()
@@ -64,6 +69,7 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 		e.reqBody = b
+		reqLen = len(b)
 		req = req.Clone(req.Context())
 		req.Body = io.NopCloser(bytes.NewReader(b))
 	}
@@ -80,11 +86,16 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e.status = resp.Status
 	e.resHeader = resp.Header.Clone()
 	e.resBody = b
-	if isHTML(resp) {
-		if req.Context().Value(keepBodyKey{}) != nil {
-			if len(b) > maxKeptHTML {
-				e.resBody = append(append([]byte(nil), b[:maxKeptHTML]...), fmt.Sprintf("\n[truncated: %d of %d bytes kept]", maxKeptHTML, len(b))...)
-			}
+	switch {
+	case omit:
+		e.reqBody = nil
+		if reqLen > 0 {
+			e.reqBody = []byte(fmt.Sprintf("[request body omitted: %d bytes]", reqLen))
+		}
+		e.resBody = []byte(fmt.Sprintf("[response body omitted: %d bytes]", len(b)))
+	case isHTML(resp, b):
+		if keep && first {
+			e.truncate = true // cut after anonymization, in WriteTo
 		} else {
 			// HTML pages (login page, error pages) can embed user names and other free text.
 			e.resBody = []byte(htmlPlaceholder(b))
@@ -144,7 +155,11 @@ func (r *Recorder) WriteTo(w io.Writer) (int64, error) {
 		fmt.Fprintf(&sb, "--- %s (%d ms)\n", e.status, e.durationMS)
 		r.writeHeaders(&sb, e.resHeader)
 		if len(e.resBody) > 0 {
-			fmt.Fprintf(&sb, "\n%s\n", r.anon.Apply(string(e.resBody)))
+			body := r.anon.Apply(string(e.resBody))
+			if e.truncate && len(body) > maxKeptHTML {
+				body = body[:maxKeptHTML] + fmt.Sprintf("\n[truncated: %d of %d bytes kept]", maxKeptHTML, len(body))
+			}
+			fmt.Fprintf(&sb, "\n%s\n", body)
 		}
 		sb.WriteString("\n")
 	}
@@ -167,14 +182,28 @@ const maxKeptHTML = 64 << 10
 type keepBodyKey struct{}
 
 // KeepBody marks requests made with the returned context so that an HTML response body is
-// recorded (capped at 64 KB) instead of being reduced to its title and length. The full
+// recorded (first hop only, capped at 64 KB after anonymization) instead of being reduced to its title and length. The full
 // anonymizer rules still apply when the trace is written.
 func KeepBody(ctx context.Context) context.Context {
 	return context.WithValue(ctx, keepBodyKey{}, true)
 }
 
-func isHTML(resp *http.Response) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "text/html")
+type omitBodyKey struct{}
+
+// OmitBody marks requests made with the returned context so that neither the request nor the
+// response body is recorded, only status, headers and sizes. Use it for private data.
+func OmitBody(ctx context.Context) context.Context {
+	return context.WithValue(ctx, omitBodyKey{}, true)
+}
+
+// isHTML detects HTML by content type or by sniffing the body.
+func isHTML(resp *http.Response, body []byte) bool {
+	ct := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if strings.HasPrefix(ct, "text/html") || strings.HasPrefix(ct, "application/xhtml") {
+		return true
+	}
+	head := strings.ToLower(string(body[:min(len(body), 1024)]))
+	return strings.HasPrefix(strings.TrimSpace(head), "<!doctype html") || strings.Contains(head, "<html")
 }
 
 var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)

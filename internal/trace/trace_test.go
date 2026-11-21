@@ -349,3 +349,94 @@ func TestRecorder_KeepsHTMLBodyWhenOptedIn(t *testing.T) {
 		t.Errorf("missing omission or truncation marker")
 	}
 }
+
+func TestApply_JSONKeysHardened(t *testing.T) {
+	a := NewAnonymizer("Test")
+	for name, in := range map[string]string{
+		"bracket":  `{"activeUsers":[{"value":"Brack]et Name","text":"Brack]et Name","UID":"boxuser9"},{"value":"Second Person"}],"x":1}`,
+		"escaped":  `{"activeUsers":[{"value":"Say \"hi]\" Person"}],"x":1}`,
+		"htmlform": `{&quot;activeUsers&quot;:[{&quot;value&quot;:&quot;Quoted Person&quot;}],&quot;x&quot;:1}`,
+		"others":   `{"user":"Quoted Person","name":"Name Person","users":["Users Person"],"UID":"boxuser7","username":"Quoted Person"}`,
+	} {
+		got := a.Apply(in)
+		for _, leak := range []string{"Brack", "Second", "Person", "hi]", "boxuser", "Name"} {
+			if strings.Contains(got, leak) {
+				t.Errorf("%s: leaks %q: %s", name, leak, got)
+			}
+		}
+	}
+	if got := a.Apply(`{"activeUsers":["A]"],"x":1}`); !strings.HasSuffix(got, `,"x":1}`) {
+		t.Errorf("over-redacted: %s", got)
+	}
+}
+
+func TestApply_ExportNameAngleBracketNotExempt(t *testing.T) {
+	a := NewAnonymizer("Test")
+	got := a.Apply("PhonebookExportName=%3Cprivate%3E&x=1")
+	if strings.Contains(got, "private") {
+		t.Errorf("leaks: %s", got)
+	}
+}
+
+func htmlRT(body string, ct string, redirect bool) roundTripFunc {
+	return func(r *http.Request) (*http.Response, error) {
+		h := http.Header{}
+		if ct != "" {
+			h.Set("Content-Type", ct)
+		}
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: h, Body: io.NopCloser(strings.NewReader(body))}, nil
+	}
+}
+
+func recordOne(t *testing.T, rec *Recorder, req *http.Request) string {
+	t.Helper()
+	if _, err := rec.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if _, err := rec.WriteTo(&sb); err != nil {
+		t.Fatal(err)
+	}
+	return sb.String()
+}
+
+func TestRecorder_KeepBodyOnlyFirstHop(t *testing.T) {
+	rec := NewRecorder(htmlRT("<html><title>Login</title>Maria Example</html>", "text/html", false), NewAnonymizer("Test"))
+	req, _ := http.NewRequestWithContext(KeepBody(context.Background()), "GET", "http://box.example/index.lua", nil)
+	req.Response = &http.Response{StatusCode: 302} // as set by http.Client on redirect targets
+	out := recordOne(t, rec, req)
+	if strings.Contains(out, "Maria") || !strings.Contains(out, "[HTML body omitted:") {
+		t.Errorf("trace = %s", out)
+	}
+}
+
+func TestRecorder_SniffsHTMLWithoutContentType(t *testing.T) {
+	for _, ct := range []string{"", "text/plain", "application/xhtml+xml"} {
+		rec := NewRecorder(htmlRT("\n  <!DOCTYPE html><html><title>T</title>Maria Example</html>", ct, false), NewAnonymizer("Test"))
+		req, _ := http.NewRequest("GET", "http://box.example/x", nil)
+		if out := recordOne(t, rec, req); strings.Contains(out, "Maria") {
+			t.Errorf("content type %q: trace leaks: %s", ct, out)
+		}
+	}
+}
+
+func TestRecorder_OmitBody(t *testing.T) {
+	rec := NewRecorder(htmlRT(`<phonebook name="Secret"><contact>Private Person</contact></phonebook>`, "text/xml", false), NewAnonymizer("Test"))
+	req, _ := http.NewRequestWithContext(OmitBody(context.Background()), "POST", "http://box.example/x", strings.NewReader("PhonebookExportName=Secret"))
+	out := recordOne(t, rec, req)
+	if strings.Contains(out, "Secret") || strings.Contains(out, "Private") || !strings.Contains(out, "[response body omitted: 70 bytes]") || !strings.Contains(out, "[request body omitted: 26 bytes]") {
+		t.Errorf("trace = %s", out)
+	}
+}
+
+func TestRecorder_TruncatesAfterAnonymization(t *testing.T) {
+	a := NewAnonymizer("Test")
+	a.AddSecret("TOPSECRETVALUE", "S")
+	body := "<html>" + strings.Repeat("x", maxKeptHTML-10) + "TOPSECRETVALUE" + strings.Repeat("y", 100) + "</html>"
+	rec := NewRecorder(htmlRT(body, "text/html", false), a)
+	req, _ := http.NewRequestWithContext(KeepBody(context.Background()), "GET", "http://box.example/x", nil)
+	out := recordOne(t, rec, req) // would fail the leak check if a cut secret survived
+	if !strings.Contains(out, "[truncated:") || strings.Contains(out, "TOPSECRET") {
+		t.Errorf("unexpected output (len %d)", len(out))
+	}
+}

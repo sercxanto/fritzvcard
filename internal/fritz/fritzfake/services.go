@@ -3,6 +3,7 @@ package fritzfake
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -80,12 +81,21 @@ func (b *Box) handleTR064(w http.ResponseWriter, r *http.Request) {
 		out = "<NewPhonebookList>" + strings.Join(ids, ",") + "</NewPhonebookList>"
 	case r.URL.Path == "/upnp/control/x_contact" && action == "GetPhonebook":
 		id, _ := strconv.Atoi(args["NewPhonebookID"])
+		if b.BrokenBookID != nil && *b.BrokenBookID == id {
+			writeFault(w, 713, "Invalid array index")
+			return
+		}
+		host := r.Host
+		if b.PhonebookHost != "" {
+			_, port, _ := net.SplitHostPort(r.Host)
+			host = b.PhonebookHost + ":" + port
+		}
 		found := false
 		b.mu.Lock()
 		for _, p := range b.Phonebooks {
 			if p.ID == id {
 				found = true
-				out = fmt.Sprintf("<NewPhonebookName>%s</NewPhonebookName><NewPhonebookURL>http://%s/phonebook.lua?pbid=%d&amp;sid=%s</NewPhonebookURL>", p.Name, r.Host, id, validSID)
+				out = fmt.Sprintf("<NewPhonebookName>%s</NewPhonebookName><NewPhonebookURL>http://%s/phonebook.lua?pbid=%d&amp;sid=%s</NewPhonebookURL>", p.Name, host, id, validSID)
 			}
 		}
 		b.mu.Unlock()
@@ -180,6 +190,10 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	if string(vals["sid"]) != validSID {
 		http.Error(w, "invalid sid", http.StatusForbidden)
+		return
+	}
+	if b.ImportRedirect {
+		http.Redirect(w, r, "/index.lua", http.StatusFound)
 		return
 	}
 	id, _ := strconv.Atoi(string(vals["PhonebookId"]))

@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -203,9 +204,11 @@ func (p *probe) steps() error {
 			name, u, err := p.c.PhonebookTR064(ctx, id)
 			if err != nil {
 				p.rec.Note("TR-064 GetPhonebook %d failed: %v", id, err)
-				continue
+				// the unknown book might be Test; do not go on to a write
+				return fmt.Errorf("cannot read the name of phonebook ID %d, aborting before any write", id)
 			}
 			names[id], urls[id] = name, u
+			p.guardName(name)
 			tr064IDs = append(tr064IDs, id)
 		}
 	}
@@ -213,7 +216,7 @@ func (p *probe) steps() error {
 	p.step(4, "firmwarecfg export check / fallback listing")
 	if len(tr064IDs) > 0 {
 		for _, id := range tr064IDs {
-			status, body, err := p.c.ExportPhonebookRaw(ctx, id, names[id])
+			status, body, err := p.c.ExportPhonebookRaw(p.bodyCtx(ctx, names[id]), id, names[id])
 			if err != nil {
 				p.rec.Note("export of ID %d failed: %v", id, err)
 				continue
@@ -227,7 +230,7 @@ func (p *probe) steps() error {
 	} else {
 		p.rec.Note("TR-064 gave no names; trying the export listing with an empty name (the box may reject it)")
 		for id := 0; id <= 9; id++ {
-			status, body, err := p.c.ExportPhonebookRaw(ctx, id, "")
+			status, body, err := p.c.ExportPhonebookRaw(trace.OmitBody(ctx), id, "")
 			if err != nil {
 				p.rec.Note("export of ID %d failed: %v", id, err)
 				break
@@ -238,6 +241,7 @@ func (p *probe) steps() error {
 				break
 			}
 			names[id] = info.Name
+			p.guardName(info.Name)
 			p.rec.Note("ID %d: phonebook with %d contacts", id, info.Contacts)
 		}
 	}
@@ -349,7 +353,7 @@ func (p *probe) otherCounts(ctx context.Context, names map[int]string) map[int]i
 	counts := map[int]int{}
 	for id, name := range names {
 		counts[id] = -1
-		if _, body, err := p.c.ExportPhonebookRaw(ctx, id, name); err == nil {
+		if _, body, err := p.c.ExportPhonebookRaw(trace.OmitBody(ctx), id, name); err == nil {
 			if info, err := fbxml.Inspect(bytes.NewReader(body)); err == nil {
 				counts[id] = info.Contacts
 			}
@@ -373,6 +377,11 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 		p.rec.Note("phonebook URL fetch: cannot build request")
 		return
 	}
+	// the box chooses this host; keep a host name out of the request line and Referer headers
+	if h := req.URL.Hostname(); net.ParseIP(h) == nil {
+		p.anon.AddSecret(h, "HOST")
+		p.anon.AddSecret(req.URL.Host, "HOST")
+	}
 	res, err := p.c.HTTP.Do(req)
 	if err != nil {
 		var ue *url.Error
@@ -389,4 +398,20 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 	} else {
 		p.rec.Note("phonebook URL fetch: status %d, content-type %q, phonebook with %d contacts", res.StatusCode, res.Header.Get("Content-Type"), info.Contacts)
 	}
+}
+
+// guardName registers the name of a phonebook other than Test as a secret, a backstop on top
+// of the body omission. Names shorter than 3 characters would damage ordinary text.
+func (p *probe) guardName(name string) {
+	if name != testBook && len(name) >= 3 {
+		p.anon.AddSecret(name, "PHONEBOOK-NAME")
+	}
+}
+
+// bodyCtx keeps response bodies only for the Test phonebook.
+func (p *probe) bodyCtx(ctx context.Context, name string) context.Context {
+	if name == testBook {
+		return ctx
+	}
+	return trace.OmitBody(ctx)
 }
