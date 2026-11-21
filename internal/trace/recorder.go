@@ -158,8 +158,13 @@ func (r *Recorder) WriteTo(w io.Writer) (int64, error) {
 			continue
 		}
 		fmt.Fprintf(&sb, "--- %s (%d ms)\n", e.status, e.durationMS)
+		resBody := e.resBody
+		why := ""
+		if e.expect != nil && !e.omit {
+			why = e.expect.violation(resBody)
+		}
 		resHeader := e.resHeader
-		if e.omit {
+		if e.omit || why != "" {
 			// Other headers (Content-Disposition with a file name, ...) can carry private names.
 			resHeader = http.Header{}
 			for _, k := range []string{"Content-Type", "Content-Length"} {
@@ -169,12 +174,9 @@ func (r *Recorder) WriteTo(w io.Writer) (int64, error) {
 			}
 		}
 		r.writeHeaders(&sb, resHeader)
-		resBody := e.resBody
-		if e.expect != nil && !e.omit {
-			if why := e.expect.violation(resBody); why != "" {
-				fmt.Fprintf(&sb, "# WARNING: response of step %d is not the expected phonebook %q (%s); body omitted\n", e.step, e.expect.name, why)
-				resBody = []byte(fmt.Sprintf("[response body omitted: %d bytes, %s]", len(e.resBody), why))
-			}
+		if why != "" {
+			fmt.Fprintf(&sb, "# WARNING: response of step %d is not the expected phonebook %q (%s); body and headers omitted\n", e.step, e.expect.name, why)
+			resBody = []byte(fmt.Sprintf("[response body omitted: %d bytes, %s]", len(e.resBody), why))
 		}
 		if len(resBody) > 0 {
 			body := r.anon.Apply(string(resBody))

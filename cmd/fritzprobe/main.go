@@ -400,6 +400,11 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 	}
 }
 
+// Error text in notes (p.rec.Note("... failed: %v", err)) cannot carry box data: fritz.Client.do
+// reduces transport errors to their cause (no URL), the raw calls add only status lines, and
+// TR-064 faults are the box's fixed UPnP error strings. Notes also go through Apply, so
+// guarded names are replaced there as well.
+
 // guardName registers the name of a phonebook other than Test as a secret, a backstop on top
 // of the body omission. Names shorter than 3 characters would damage ordinary text.
 func (p *probe) guardName(name string) {

@@ -256,7 +256,11 @@ func scanString(s string, i int) int {
 	q := s[i : i+quoteAt(s, i)]
 	for j := i + len(q); j < len(s); {
 		if strings.HasPrefix(s[j:], q) {
-			return j + len(q)
+			// A double-encoded string may contain escaped quotes (\\\"). Fail closed: its
+			// closing quote must not follow a backslash and must precede a structural character.
+			if q[0] != '\\' || (j > 0 && s[j-1] != '\\' && (j+2 >= len(s) || strings.IndexByte(",}] \t\r\n", s[j+2]) >= 0)) {
+				return j + len(q)
+			}
 		}
 		if s[j] == '\\' && j+1 < len(s) && q[0] != '\\' {
 			j += 2

@@ -450,8 +450,9 @@ func TestAddGuard_AfterRulesAndNoLeakCheck(t *testing.T) {
 	if strings.Contains(got, "otheruser") {
 		t.Errorf("rule broken by guard: %s", got)
 	}
+	a.AddGuard("BOOK") // its own replacement "<PHONEBOOK-NAME>" contains it: a leak check would refuse
 	rec := NewRecorder(htmlRT("<phonebooks></phonebooks>", "text/xml", false), a)
-	req, _ := http.NewRequest("GET", "http://box.example/x", nil)
+	req, _ := http.NewRequest("GET", "http://box.example/x?q=BOOK", nil)
 	if out := recordOne(t, rec, req); !strings.Contains(out, "=== Step 1") {
 		t.Errorf("structure garbled: %s", out)
 	}
@@ -481,11 +482,11 @@ func TestRecorder_OmitBodyKeepsOnlyTypeAndLength(t *testing.T) {
 }
 
 func TestRecorder_ExpectPhonebook(t *testing.T) {
-	other := `<?xml version="1.0"?><phonebooks><phonebook name="Other"><contact><person><realName>Zed Person</realName></person></contact></phonebook></phonebooks>`
+	other := `<?xml version="1.0"?><phonebooks><phonebook name="Other"><contact><person><realName>Zed Person</realName></person><carddav_uid>zz-leak-marker</carddav_uid></contact></phonebook></phonebooks>`
 	rec := NewRecorder(htmlRT(other, "text/xml", false), NewAnonymizer("Test"))
 	req, _ := http.NewRequestWithContext(ExpectPhonebook(context.Background(), "Test", true), "GET", "http://box.example/x", nil)
 	out := recordOne(t, rec, req)
-	if strings.Contains(out, "Zed") || !strings.Contains(out, "WARNING: response of step 1") {
+	if strings.Contains(out, "zz-leak-marker") || !strings.Contains(out, "WARNING: response of step 1") {
 		t.Errorf("trace = %s", out)
 	}
 	rec = NewRecorder(htmlRT("<phonebooks><phonebook name=\"Test\"></phonebook></phonebooks>", "text/xml", false), NewAnonymizer("Test"))
@@ -524,5 +525,30 @@ func TestApply_JSONLinearTime(t *testing.T) {
 	a.Apply(in)
 	if d := time.Since(start); d > 5*time.Second {
 		t.Errorf("Apply took %s", d)
+	}
+}
+
+func TestApply_DoubleEncodedEscapedQuotes(t *testing.T) {
+	a := NewAnonymizer("Test")
+	in := `"{\"user\":\"Ann \\\"Q\\\" Person\",\"k\":1}"`
+	got := a.Apply(in)
+	if strings.Contains(got, "Person") || strings.Contains(got, "Ann") {
+		t.Errorf("leaks: %s", got)
+	}
+	if !strings.Contains(got, `\"k\":1}`) {
+		t.Errorf("over-redacted: %s", got)
+	}
+}
+
+func TestRecorder_ExpectViolationDropsHeaders(t *testing.T) {
+	other := `<phonebooks><phonebook name="Other"></phonebook></phonebooks>`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		h := http.Header{"Content-Type": {"text/xml"}, "Content-Disposition": {`attachment; filename="Ab.xml"`}}
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: h, Body: io.NopCloser(strings.NewReader(other))}, nil
+	})
+	rec := NewRecorder(rt, NewAnonymizer("Test"))
+	req, _ := http.NewRequestWithContext(ExpectPhonebook(context.Background(), "Test", true), "GET", "http://box.example/x", nil)
+	if out := recordOne(t, rec, req); strings.Contains(out, "Ab.xml") || !strings.Contains(out, "Content-Type: text/xml") {
+		t.Errorf("trace = %s", out)
 	}
 }

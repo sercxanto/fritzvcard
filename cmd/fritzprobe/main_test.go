@@ -300,16 +300,19 @@ func TestProbe_GuardReplacesNamesInKeptBodies(t *testing.T) {
 }
 
 func TestProbe_BoxIgnoringIDNeverRecordsOtherBook(t *testing.T) {
-	zero := 0
-	b := box(privat, testPB)
-	b.ServeOtherID = &zero // every export and phonebook.lua serves Privat
-	r := runProbe(t, b, "yes\ny\ny\n")
-	for _, leak := range []string{"Secret Person", "5551234"} {
-		if strings.Contains(r.trace, leak) {
-			t.Errorf("trace contains %q", leak)
+	marker := `<?xml version="1.0"?><phonebooks><phonebook name="Other"><contact><carddav_uid>zz-leak-marker</carddav_uid><person><realName>Secret Person</realName></person></contact></phonebook></phonebooks>`
+	for _, name := range []string{"Privat Büro", "Ab", "User"} {
+		other := fritzfake.Phonebook{ID: 0, Name: name, XML: []byte(marker)}
+		b := box(other, testPB)
+		b.ServeOtherID = &other.ID // every export and phonebook.lua serves the other book
+		r := runProbe(t, b, "yes\ny\ny\n")
+		for _, leak := range []string{"zz-leak-marker", "Secret Person", "Privat", "Büro", "Ab.xml", "User.xml"} {
+			if strings.Contains(r.trace, leak) {
+				t.Errorf("%s: trace contains %q", name, leak)
+			}
 		}
-	}
-	if !strings.Contains(r.trace, "WARNING: response of step") {
-		t.Error("no warning in the trace")
+		if !strings.Contains(r.trace, "WARNING: response of step") {
+			t.Errorf("%s: no warning in the trace", name)
+		}
 	}
 }
