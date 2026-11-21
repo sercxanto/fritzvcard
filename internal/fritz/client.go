@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const defaultBaseURL = "http://fritz.box"
@@ -17,6 +18,10 @@ type Client struct {
 	TR064URL *url.URL
 	HTTP     *http.Client
 	SID      string
+
+	// ConfirmAfter is how long ImportPhonebook waits before it assumes the box wants a
+	// second factor and calls onConfirm; zero means 3 s. Tests shorten it.
+	ConfirmAfter time.Duration
 
 	user, password string
 }
@@ -52,7 +57,11 @@ func New(baseURL string, httpClient *http.Client) (*Client, error) {
 // do sends req. Transport errors are *url.Error values that embed the full request URL,
 // which can carry the session ID; only the underlying cause is returned.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
-	res, err := c.HTTP.Do(req)
+	return c.doWith(c.HTTP, req)
+}
+
+func (c *Client) doWith(hc *http.Client, req *http.Request) (*http.Response, error) {
+	res, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {

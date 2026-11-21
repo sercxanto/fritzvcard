@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"fritzbook/internal/fritz"
 )
@@ -32,21 +33,25 @@ type Phonebook struct {
 type Box struct {
 	User, Password       string
 	Phonebooks           []Phonebook
-	BlockTime            int    // seconds; >0 makes the login endpoint report a block
-	OldFirmware          bool   // serve a pre-7.24 challenge
-	Model                string // DeviceInfo model; default "FRITZ!Box 7590"
-	Firmware             string // DeviceInfo FRITZ!OS version; default "7.57"
-	ImportAnswer         string // HTML answer to a successful import; default "Import successful"
-	PhonebookHost        string // host name put into NewPhonebookURL instead of the request host
-	BrokenBookID         *int   // GetPhonebook for this ID answers with a fault
-	ImportRedirect       bool   // imports are answered with a redirect to the login page
-	ServeOtherID         *int   // exports and phonebook.lua serve this ID's XML whatever was asked (box ignoring the ID)
-	ImportAppends        bool   // imports add contacts instead of replacing the phonebook
-	MultipartExportWorks bool   // the multipart firmwarecfg export is served (otherwise bounced to the login page)
-	LuaForbiddenID       *int   // phonebook.lua answers 403 for this pbid
-	NoTR064              bool   // the TR-064 phonebook service answers 404
-	ExportBroken         bool   // every firmwarecfg export is answered with the login redirect
-	ImportTarget         *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
+	BlockTime            int           // seconds; >0 makes the login endpoint report a block
+	OldFirmware          bool          // serve a pre-7.24 challenge
+	Model                string        // DeviceInfo model; default "FRITZ!Box 7590"
+	Firmware             string        // DeviceInfo FRITZ!OS version; default "7.57"
+	ImportAnswer         string        // HTML answer to a successful import; default "Import successful"
+	PhonebookHost        string        // host name put into NewPhonebookURL instead of the request host
+	BrokenBookID         *int          // GetPhonebook for this ID answers with a fault
+	ImportRedirect       bool          // imports are answered with a redirect to the login page
+	ServeOtherID         *int          // exports and phonebook.lua serve this ID's XML whatever was asked (box ignoring the ID)
+	ImportAppends        bool          // imports add contacts instead of replacing the phonebook
+	MultipartExportWorks bool          // the multipart firmwarecfg export is served (otherwise bounced to the login page); opt-in so the probe tests can cover both answers
+	LuaForbiddenID       *int          // phonebook.lua answers 403 for this pbid
+	NoTR064              bool          // the TR-064 phonebook service answers 404
+	ExportBroken         bool          // every firmwarecfg export is answered with the login redirect
+	ImportTarget         *int          // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
+	TR064Status          int           // if set (401, 403), the TR-064 phonebook service always answers with this status (TR-064 disabled or user not allowed)
+	ImportStatus         int           // if set, imports are answered with this non-200 status and change nothing
+	ImportDelay          time.Duration // imports stay pending this long before they are applied (unobserved 2FA path, assumption F6)
+	HoldImport           chan struct{} // if set, imports stay pending until the channel is closed (or the client gives up)
 
 	mu        sync.Mutex
 	requests  []string

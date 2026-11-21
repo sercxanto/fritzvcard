@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"fritzbook/internal/fritz"
 )
@@ -42,6 +43,13 @@ func (b *Box) digestOK(r *http.Request) bool {
 }
 
 func (b *Box) handleTR064(w http.ResponseWriter, r *http.Request) {
+	if b.TR064Status != 0 && r.URL.Path == "/upnp/control/x_contact" {
+		if b.TR064Status == http.StatusUnauthorized {
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Digest realm=%q, nonce=%q, qop="auth", algorithm=MD5`, digestRealm, digestNonce))
+		}
+		http.Error(w, "refused", b.TR064Status)
+		return
+	}
 	if b.NoTR064 && r.URL.Path == "/upnp/control/x_contact" {
 		http.NotFound(w, r)
 		return
@@ -209,6 +217,22 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/index.lua", http.StatusFound)
 		return
 	}
+	if b.ImportStatus != 0 {
+		http.Error(w, "import refused", b.ImportStatus)
+		return
+	}
+	if b.ImportDelay > 0 || b.HoldImport != nil {
+		var delay <-chan time.Time
+		if b.ImportDelay > 0 {
+			delay = time.After(b.ImportDelay)
+		}
+		select {
+		case <-delay:
+		case <-b.HoldImport:
+		case <-r.Context().Done():
+			return
+		}
+	}
 	id, _ := strconv.Atoi(string(vals["PhonebookId"]))
 	if b.ImportTarget != nil {
 		id = *b.ImportTarget
@@ -257,8 +281,14 @@ func (b *Box) handleMultipartExport(w http.ResponseWriter, r *http.Request, vals
 	if b.ServeOtherID != nil {
 		id = *b.ServeOtherID
 	}
-	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	w.Write(b.PhonebookXML(id))
+	x := b.PhonebookXML(id)
+	if x == nil {
+		http.Redirect(w, r, "/index.lua", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="export_`+strings.ReplaceAll(b.phonebookName(id), " ", "_")+`.xml"`)
+	w.Write(x)
 }
 
 var rePBOpen = regexp.MustCompile(`<phonebook\b`)
