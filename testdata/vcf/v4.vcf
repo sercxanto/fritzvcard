@@ -1,0 +1,6 @@
+BEGIN:VCARD
+VERSION:4.0
+FN:Max Beispiel
+TEL;VALUE=uri;TYPE=cell:tel:+49-170-0000003
+EMAIL;TYPE=work:max@example.org
+END:VCARD

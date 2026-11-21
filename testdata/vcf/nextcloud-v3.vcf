@@ -1,0 +1,16 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Erika Mustermann
+N:Mustermann;Erika;;;
+TEL;TYPE=CELL:+49 170 0000001
+TEL;TYPE=HOME:030 0000002
+EMAIL;TYPE=HOME:erika@example.org
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Jürgen Müller
+TEL;TYPE=CELL:+49 170 00
+ 00004
+NOTE:A folded note that
+  continues here
+END:VCARD
