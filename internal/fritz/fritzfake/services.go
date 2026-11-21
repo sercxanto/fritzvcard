@@ -85,7 +85,7 @@ func (b *Box) handleTR064(w http.ResponseWriter, r *http.Request) {
 		for _, p := range b.Phonebooks {
 			if p.ID == id {
 				found = true
-				out = fmt.Sprintf("<NewPhonebookName>%s</NewPhonebookName><NewPhonebookURL>http://fritz.box:49000/phonebook%d.xml</NewPhonebookURL>", p.Name, id)
+				out = fmt.Sprintf("<NewPhonebookName>%s</NewPhonebookName><NewPhonebookURL>http://%s/phonebook.lua?pbid=%d&amp;sid=%s</NewPhonebookURL>", p.Name, r.Host, id, validSID)
 			}
 		}
 		b.mu.Unlock()
@@ -134,6 +134,12 @@ func (b *Box) handleFirmwareCfg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := strconv.Atoi(r.PostForm.Get("PhonebookId"))
+	// Like the real box, an export whose name does not match the phonebook's name is
+	// bounced to the login page.
+	if b.ExportBroken || b.phonebookName(id) != r.PostForm.Get("PhonebookExportName") || b.phonebookName(id) == "" {
+		http.Redirect(w, r, "/index.lua", http.StatusFound)
+		return
+	}
 	if x := b.PhonebookXML(id); x != nil {
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 		w.Write(x)
@@ -192,4 +198,35 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "no such phonebook", http.StatusNotFound)
+}
+
+func (b *Box) phonebookName(id int) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, p := range b.Phonebooks {
+		if p.ID == id {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+// handleIndex serves a login page with synthetic user names embedded, like the real box.
+func (b *Box) handleIndex(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	io.WriteString(w, `<!DOCTYPE html><html><head><title>FRITZ!Box</title></head><body><script>
+var data = {"activeUsers":[{"value":"Maria Example","text":"Maria Example","UID":"boxuser1"},{"value":"Max Muster","text":"Max Muster","UID":"boxuser2"}],"username":"Maria Example","challenge":"2$10000$AABBCC$2000$DDEEFF"};
+</script></body></html>`)
+}
+
+// handlePhonebookURL serves the download URL that GetPhonebook returns.
+func (b *Box) handlePhonebookURL(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(r.URL.Query().Get("pbid"))
+	x := b.PhonebookXML(id)
+	if r.URL.Query().Get("sid") != validSID || x == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.Write(x)
 }

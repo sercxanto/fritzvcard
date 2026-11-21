@@ -85,7 +85,7 @@ func TestProbe_WritesOnlyToTest(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebook (name withheld) with 1 contacts", "unchanged", "after: 3 contacts"} {
+	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "ID 0: export ok, 1 contacts", "phonebook URL fetch: status 200", "unchanged", "after: 3 contacts"} {
 		if !strings.Contains(r.trace, want) {
 			t.Errorf("trace lacks %q", want)
 		}
@@ -129,5 +129,35 @@ func TestProbe_WarnsWhenOtherPhonebookChanges(t *testing.T) {
 	}
 	if strings.Contains(r.trace, "Secret Person") {
 		t.Error("trace leaks private contact")
+	}
+}
+
+func TestProbe_FindsTestViaTR064WhenExportListingFails(t *testing.T) {
+	b := box(privat, testPB)
+	b.ExportBroken = true // every export is bounced to the login page
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if r.code != 0 {
+		t.Fatalf("exit %d, stderr %q", r.code, r.err)
+	}
+	if got := b.Imports(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("imports = %v, want [1]", got)
+	}
+	for _, leak := range []string{"Maria Example", "Max Muster", "boxuser", "Secret Person", "Privat", "AABBCC"} {
+		if strings.Contains(r.trace, leak) {
+			t.Errorf("trace contains %q", leak)
+		}
+	}
+	if !strings.Contains(r.trace, "HTML body omitted") {
+		t.Error("login page not replaced by a placeholder")
+	}
+	// the TR-064 URL is fetched for Test only
+	n := 0
+	for _, q := range b.Requests() {
+		if q == "GET /phonebook.lua" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("phonebook.lua requests = %d, want 1", n)
 	}
 }

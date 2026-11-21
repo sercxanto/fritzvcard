@@ -81,7 +81,9 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
    Credentials, session IDs, serials, hostnames and all contact data outside `Test` are
    replaced by placeholders, and the probe refuses to write a file in which a registered
    secret survived. Still check for anything personal before sharing.
-5. Store the reviewed file under `testdata/probe/` and commit it with a message like
+   The raw recording is ignored by git (`/fritzprobe-*.txt` in `.gitignore`) and must stay out
+   of git until you have reviewed it.
+5. Store the reviewed file under `testdata/probe/` (a path the ignore rule does not match) and commit it with a message like
    `test(probe): add <model> FRITZ!OS <version> recording`.
 
 ## Conventions

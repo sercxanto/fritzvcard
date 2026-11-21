@@ -54,24 +54,27 @@ var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`
 func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
 
 var (
-	reSIDParam   = regexp.MustCompile(`(?i)\bsid=[0-9A-Za-z]+`)
-	reSIDTag     = regexp.MustCompile(`<SID>([^<]*)</SID>`)
-	reChallenge  = regexp.MustCompile(`<Challenge>[^<]*</Challenge>`)
-	reResponse   = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
-	reUser       = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
-	reDeviceLog  = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription)>`)
-	reSerial     = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
-	reUDN        = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
-	reMPSID      = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
-	rePBURL      = regexp.MustCompile(`(<NewPhonebookURL>\s*[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/<]*@)?)([^:/?#<\s]+)`)
-	rePhonebook  = regexp.MustCompile(`(?s)<phonebook\b([^>]*)>(.*?)</phonebook>`)
-	reNameAttr   = regexp.MustCompile(`\bname="([^"]*)"`)
-	rePBField    = regexp.MustCompile(`<(realName|number|email|imageURL)(\s[^>]*)?>([^<]+)</(realName|number|email|imageURL)>`)
-	reTRPBName   = regexp.MustCompile(`(<NewPhonebookName>)([^<]*)(</NewPhonebookName>)`)
-	reMAC        = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
-	reIPv4       = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	reIPv6       = regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,5})?|::[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}`)
-	reAuthParams = regexp.MustCompile(`(?i)\b(nonce|opaque)="[^"]*"`)
+	reSIDParam    = regexp.MustCompile(`(?i)\bsid=[0-9A-Za-z]+`)
+	reSIDTag      = regexp.MustCompile(`<SID>([^<]*)</SID>`)
+	reChallenge   = regexp.MustCompile(`<Challenge>[^<]*</Challenge>`)
+	reResponse    = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
+	reUser        = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
+	reExportName  = regexp.MustCompile(`\bPhonebookExportName=([^&\s"'<]*)`)
+	reActiveUsers = regexp.MustCompile(`(?s)("activeUsers"\s*:\s*)\[.*?\]`)
+	reJSONSecret  = regexp.MustCompile(`("(?:username|challenge)"\s*:\s*)"(?:[^"\\]|\\.)*"`)
+	reDeviceLog   = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription)>`)
+	reSerial      = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
+	reUDN         = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
+	reMPSID       = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
+	rePBURL       = regexp.MustCompile(`(<NewPhonebookURL>\s*[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/<]*@)?)([^:/?#<\s]+)`)
+	rePhonebook   = regexp.MustCompile(`(?s)<phonebook\b([^>]*)>(.*?)</phonebook>`)
+	reNameAttr    = regexp.MustCompile(`\bname="([^"]*)"`)
+	rePBField     = regexp.MustCompile(`<(realName|number|email|imageURL)(\s[^>]*)?>([^<]+)</(realName|number|email|imageURL)>`)
+	reTRPBName    = regexp.MustCompile(`(<NewPhonebookName>)([^<]*)(</NewPhonebookName>)`)
+	reMAC         = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
+	reIPv4        = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	reIPv6        = regexp.MustCompile(`(?i)(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,5})?|::[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6}`)
+	reAuthParams  = regexp.MustCompile(`(?i)\b(nonce|opaque)="[^"]*"`)
 )
 
 var fieldKinds = map[string]string{"realName": "NAME", "number": "NUMBER", "email": "EMAIL", "imageURL": "URL"}
@@ -127,6 +130,16 @@ func (a *Anonymizer) Apply(s string) string {
 		}
 		return p[1] + a.placeholder("USER", p[2]) + p[3]
 	})
+	s = reExportName.ReplaceAllStringFunc(s, func(m string) string {
+		v := reExportName.FindStringSubmatch(m)[1]
+		name, err := url.QueryUnescape(v)
+		if v == "" || (err == nil && !a.anonymizeName(name)) || strings.HasPrefix(v, "%3C") {
+			return m
+		}
+		return "PhonebookExportName=" + url.QueryEscape(a.placeholder("PHONEBOOK", name))
+	})
+	s = reActiveUsers.ReplaceAllString(s, `${1}["<REDACTED>"]`)
+	s = reJSONSecret.ReplaceAllString(s, `${1}"<REDACTED>"`)
 	s = reDeviceLog.ReplaceAllString(s, "<$1><REDACTED></$2>")
 	s = reSerial.ReplaceAllString(s, "<$1><SERIAL></$2>")
 	s = reUDN.ReplaceAllStringFunc(s, func(m string) string {

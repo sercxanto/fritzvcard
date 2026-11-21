@@ -36,6 +36,7 @@ type Box struct {
 	OldFirmware    bool   // serve a pre-7.24 challenge
 	Model          string // DeviceInfo model; default "FRITZ!Box 7590"
 	Firmware       string // DeviceInfo FRITZ!OS version; default "7.57"
+	ExportBroken   bool   // every firmwarecfg export is answered with the login redirect
 	ImportTarget   *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
 
 	mu        sync.Mutex
@@ -85,6 +86,8 @@ func (b *Box) Start(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/upnp/control/x_contact", b.handleTR064)
 	mux.HandleFunc("/upnp/control/deviceinfo", b.handleTR064)
 	mux.HandleFunc("/cgi-bin/firmwarecfg", b.handleFirmwareCfg)
+	mux.HandleFunc("/index.lua", b.handleIndex)
+	mux.HandleFunc("/phonebook.lua", b.handlePhonebookURL)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b.mu.Lock()
 		b.requests = append(b.requests, r.Method+" "+r.URL.Path)

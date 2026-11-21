@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -78,6 +79,10 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e.status = resp.Status
 	e.resHeader = resp.Header.Clone()
 	e.resBody = b
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "text/html") {
+		// HTML pages (login page, error pages) can embed user names and other free text.
+		e.resBody = []byte(htmlPlaceholder(b))
+	}
 	r.add(e)
 	if rerr != nil {
 		return nil, rerr
@@ -148,4 +153,14 @@ func (r *Recorder) WriteTo(w io.Writer) (int64, error) {
 	}
 	n, err := io.WriteString(w, out)
 	return int64(n), err
+}
+
+var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+func htmlPlaceholder(b []byte) string {
+	title := ""
+	if m := reTitle.FindSubmatch(b); m != nil {
+		title = strings.Join(strings.Fields(string(m[1])), " ")
+	}
+	return fmt.Sprintf("[HTML body omitted: %d bytes, title: %s]", len(b), title)
 }

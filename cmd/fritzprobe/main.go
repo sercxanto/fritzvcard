@@ -190,41 +190,68 @@ func (p *probe) steps() error {
 	}
 
 	p.step(3, "TR-064 phonebook list")
+	// names and urls come from TR-064, the authoritative source. Names of phonebooks other
+	// than Test are used for requests only and never logged.
+	names := map[int]string{}
+	urls := map[int]string{}
+	var tr064IDs []int
 	if ids, err := p.c.PhonebookIDsTR064(ctx); err != nil {
 		p.rec.Note("TR-064 GetPhonebookList failed: %v", err)
 	} else {
 		p.rec.Note("TR-064 phonebook IDs: %v", ids)
 		for _, id := range ids {
-			if _, _, err := p.c.PhonebookTR064(ctx, id); err != nil {
+			name, u, err := p.c.PhonebookTR064(ctx, id)
+			if err != nil {
 				p.rec.Note("TR-064 GetPhonebook %d failed: %v", id, err)
+				continue
 			}
+			names[id], urls[id] = name, u
+			tr064IDs = append(tr064IDs, id)
 		}
 	}
 
-	p.step(4, "fallback listing via firmwarecfg export")
-	var testIDs []int
-	otherIDs := map[int]bool{} // non-Test phonebooks: only IDs and counts are ever logged
-	for id := 0; id <= 9; id++ {
-		status, body, err := p.c.ExportPhonebookRaw(ctx, id, "")
-		if err != nil {
-			p.rec.Note("export of ID %d failed: %v", id, err)
-			break
+	p.step(4, "firmwarecfg export check / fallback listing")
+	if len(tr064IDs) > 0 {
+		for _, id := range tr064IDs {
+			status, body, err := p.c.ExportPhonebookRaw(ctx, id, names[id])
+			if err != nil {
+				p.rec.Note("export of ID %d failed: %v", id, err)
+				continue
+			}
+			if info, err := fbxml.Inspect(bytes.NewReader(body)); err != nil {
+				p.rec.Note("ID %d: export status %d, not a phonebook", id, status)
+			} else {
+				p.rec.Note("ID %d: export ok, %d contacts", id, info.Contacts)
+			}
 		}
-		info, err := fbxml.Inspect(bytes.NewReader(body))
-		if err != nil {
-			p.rec.Note("ID %d: status %d, not a phonebook (%v); listing stops", id, status, err)
-			break
-		}
-		if info.Name == testBook {
-			p.rec.Note("ID %d: phonebook %q with %d contacts", id, info.Name, info.Contacts)
-			testIDs = append(testIDs, id)
-		} else {
-			p.rec.Note("ID %d: other phonebook (name withheld) with %d contacts", id, info.Contacts)
-			otherIDs[id] = true
+	} else {
+		p.rec.Note("TR-064 gave no names; trying the export listing with an empty name (the box may reject it)")
+		for id := 0; id <= 9; id++ {
+			status, body, err := p.c.ExportPhonebookRaw(ctx, id, "")
+			if err != nil {
+				p.rec.Note("export of ID %d failed: %v", id, err)
+				break
+			}
+			info, err := fbxml.Inspect(bytes.NewReader(body))
+			if err != nil {
+				p.rec.Note("ID %d: status %d, not a phonebook; listing stops", id, status)
+				break
+			}
+			names[id] = info.Name
+			p.rec.Note("ID %d: phonebook with %d contacts", id, info.Contacts)
 		}
 	}
 
 	p.step(5, "pick the phonebook named 'Test'")
+	var testIDs []int
+	others := map[int]string{} // non-Test phonebooks: only IDs and counts are ever logged
+	for id, name := range names {
+		if name == testBook {
+			testIDs = append(testIDs, id)
+		} else {
+			others[id] = name
+		}
+	}
 	if len(testIDs) != 1 {
 		return errors.New("Create exactly one phonebook named 'Test' first") //nolint:staticcheck // user-facing sentence
 	}
@@ -232,7 +259,7 @@ func (p *probe) steps() error {
 	p.rec.Note("Test phonebook has ID %d", id)
 
 	p.step(6, "export Test (before)")
-	othersBefore := p.otherCounts(ctx, otherIDs)
+	othersBefore := p.otherCounts(ctx, others)
 	_, body, err := p.c.ExportPhonebookRaw(ctx, id, testBook)
 	if err != nil {
 		return err
@@ -240,6 +267,8 @@ func (p *probe) steps() error {
 	if info, err := fbxml.Inspect(bytes.NewReader(body)); err == nil {
 		p.rec.Note("before: %d contacts", info.Contacts)
 	}
+
+	p.fetchPhonebookURL(ctx, id, urls[id])
 
 	p.step(7, "confirm the write")
 	p.say("Planned write: import 3 synthetic contacts (Probe Contact 1-3) into the phonebook %q (ID %d).", testBook, id)
@@ -297,7 +326,7 @@ func (p *probe) steps() error {
 	} else {
 		p.rec.Note("after: %d contacts", info.Contacts)
 	}
-	othersAfter := p.otherCounts(ctx, otherIDs)
+	othersAfter := p.otherCounts(ctx, others)
 	var changed []int
 	for id, n := range othersBefore {
 		if othersAfter[id] != n {
@@ -316,15 +345,48 @@ func (p *probe) steps() error {
 
 // otherCounts exports each non-Test phonebook and returns its contact count (-1 if unreadable).
 // Names and contact data are never logged by the probe itself.
-func (p *probe) otherCounts(ctx context.Context, ids map[int]bool) map[int]int {
+func (p *probe) otherCounts(ctx context.Context, names map[int]string) map[int]int {
 	counts := map[int]int{}
-	for id := range ids {
+	for id, name := range names {
 		counts[id] = -1
-		if _, body, err := p.c.ExportPhonebookRaw(ctx, id, ""); err == nil {
+		if _, body, err := p.c.ExportPhonebookRaw(ctx, id, name); err == nil {
 			if info, err := fbxml.Inspect(bytes.NewReader(body)); err == nil {
 				counts[id] = info.Contacts
 			}
 		}
 	}
 	return counts
+}
+
+// fetchPhonebookURL does a read-only GET of the NewPhonebookURL TR-064 returned for the Test
+// phonebook (never for other books) to learn whether a read-only export route exists.
+func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
+	p.rec.Note("read-only check: GET the TR-064 phonebook URL of Test (ID %d)", id)
+	if u == "" {
+		p.rec.Note("no phonebook URL from TR-064")
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		p.rec.Note("phonebook URL fetch: cannot build request")
+		return
+	}
+	res, err := p.c.HTTP.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // the URL carries the SID
+		}
+		p.rec.Note("phonebook URL fetch failed: %v", err)
+		return
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 64<<20))
+	if info, err := fbxml.Inspect(bytes.NewReader(body)); err != nil {
+		p.rec.Note("phonebook URL fetch: status %d, content-type %q, not a phonebook", res.StatusCode, res.Header.Get("Content-Type"))
+	} else {
+		p.rec.Note("phonebook URL fetch: status %d, content-type %q, phonebook with %d contacts", res.StatusCode, res.Header.Get("Content-Type"), info.Contacts)
+	}
 }

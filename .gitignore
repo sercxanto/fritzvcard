@@ -2,3 +2,6 @@
 dist/
 fritzprobe-*.txt
 fritzbook-backup-*.xml
+
+# raw probe recordings stay out of git until reviewed
+/fritzprobe-*.txt

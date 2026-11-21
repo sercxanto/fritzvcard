@@ -269,3 +269,56 @@ func TestApply_DeviceInfoLogRedacted(t *testing.T) {
 		}
 	}
 }
+
+func TestApply_LoginPageJSON(t *testing.T) {
+	a := NewAnonymizer("Test")
+	in := `var d = {"activeUsers":[{"value":"Maria Example","text":"Maria Example","UID":"boxuser1"},{"value":"Max Muster","text":"Max Muster","UID":"boxuser2"}],"username":"Maria Example","challenge":"2$10000$AABBCC$2000$DDEEFF","other":"keep"};`
+	got := a.Apply(in)
+	for _, leak := range []string{"Maria", "Max Muster", "boxuser", "AABBCC"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("leaks %q: %s", leak, got)
+		}
+	}
+	if !strings.Contains(got, `"other":"keep"`) {
+		t.Errorf("over-redacted: %s", got)
+	}
+}
+
+func TestApply_ExportNameForm(t *testing.T) {
+	a := NewAnonymizer("Test")
+	got := a.Apply("sid=<SID>&PhonebookId=0&PhonebookExportName=Privat%20B&PhonebookExport=")
+	if strings.Contains(got, "Privat") {
+		t.Errorf("leaks name: %s", got)
+	}
+	if got := a.Apply("PhonebookExportName=Test&x=1"); got != "PhonebookExportName=Test&x=1" {
+		t.Errorf("Test name changed: %s", got)
+	}
+}
+
+func TestRecorder_OmitsHTMLBodies(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{"Content-Type": {"text/html; charset=utf-8"}},
+			Body: io.NopCloser(strings.NewReader("<html><head><title>My Box</title></head><body>Maria Example</body></html>"))}, nil
+	})
+	rec := NewRecorder(rt, NewAnonymizer("Test"))
+	req, _ := http.NewRequest("GET", "http://box.example/index.lua", nil)
+	res, err := rec.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "Maria Example") {
+		t.Error("caller must still get the full body")
+	}
+	var sb strings.Builder
+	if _, err := rec.WriteTo(&sb); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(sb.String(), "Maria") || !strings.Contains(sb.String(), "[HTML body omitted: 73 bytes, title: My Box]") {
+		t.Errorf("trace = %s", sb.String())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

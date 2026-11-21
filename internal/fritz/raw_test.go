@@ -101,3 +101,16 @@ func TestExportImportRaw(t *testing.T) {
 		t.Errorf("stored xml = %q", b.PhonebookXML(1))
 	}
 }
+
+func TestExportRaw_WrongNameBouncesToLoginPage(t *testing.T) {
+	b := testBox()
+	c := newLoggedIn(t, b)
+	_, body, err := c.ExportPhonebookRaw(context.Background(), 0, "")
+	if err != nil || strings.Contains(string(body), "<phonebook") {
+		t.Fatalf("got %q %v", body, err)
+	}
+	reqs := b.Requests()
+	if reqs[len(reqs)-1] != "GET /index.lua" {
+		t.Errorf("requests = %v", reqs)
+	}
+}
