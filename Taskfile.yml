@@ -1,0 +1,46 @@
+version: '3'
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  LDFLAGS: -s -w -X main.version={{.VERSION}}
+
+env:
+  CGO_ENABLED: '0'
+
+tasks:
+  build:
+    desc: Build fritzbook for the host platform into dist/fritzbook
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/fritzbook ./cmd/fritzbook
+
+  build:all:
+    desc: Cross-compile fritzbook into dist/fritzbook-<os>-<arch>[.exe]
+    cmds:
+      - for: ['linux/amd64', 'linux/arm64', 'darwin/amd64', 'darwin/arm64', 'windows/amd64']
+        cmd: >-
+          GOOS={{splitList "/" .ITEM | first}} GOARCH={{splitList "/" .ITEM | last}}
+          go build -trimpath -ldflags "{{.LDFLAGS}}"
+          -o dist/fritzbook-{{splitList "/" .ITEM | first}}-{{splitList "/" .ITEM | last}}{{if eq (splitList "/" .ITEM | first) "windows"}}.exe{{end}}
+          ./cmd/fritzbook
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run go vet and fail if gofmt reports unformatted files
+    cmds:
+      - go vet ./...
+      - |
+        out="$(gofmt -l .)"
+        if [ -n "$out" ]; then echo "gofmt needed:"; echo "$out"; exit 1; fi
+
+  probe:
+    desc: Build the probe program into dist/fritzprobe (override with GOOS/GOARCH)
+    vars:
+      GOOS: '{{.GOOS | default "darwin"}}'
+      GOARCH: '{{.GOARCH | default "arm64"}}'
+    cmds:
+      - GOOS={{.GOOS}} GOARCH={{.GOARCH}} go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/fritzprobe ./cmd/fritzprobe

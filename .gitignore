@@ -1,1 +1,4 @@
 .superpowers/
+dist/
+fritzprobe-*.txt
+fritzbook-backup-*.xml
