@@ -65,7 +65,14 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
    ignores the requested phonebook ID. Then log in to the web interface, create exactly one phonebook named `Test`
    (Telephony > Phonebook), and use a user that may edit contacts. The probe writes three
    synthetic contacts (`Probe Contact 1-3`) into `Test` and nothing else; it refuses to write
-   if there is no or more than one phonebook named `Test`.
+   if TR-064 does not confirm exactly one phonebook named `Test`. There is no fallback listing.
+   Everything the probe reads is read-only until the typed `yes`: the TR-064 phonebook list,
+   one multipart `firmwarecfg` export experiment for `Test`, and a GET of each phonebook's
+   TR-064 download URL (`phonebook.lua`). The other phonebooks are read only to compare their
+   contact counts before and after the import; their names and contents are never recorded.
+   After the import the probe re-reads `Test` and says whether the import replaced or appended
+   to its contents. If a count of another phonebook cannot be read it prints `UNVERIFIED`;
+   then compare the phonebooks manually against your backup.
 2. Build it on a machine that can reach the box: `task probe` produces `dist/fritzprobe`
    (default `darwin/arm64`; override with `GOOS=... GOARCH=...`).
 3. Run it on the host, with the password in the environment or typed at the echo-less prompt:
@@ -76,7 +83,9 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
 
    Options: `-o <file>`, `--insecure` (https with a self-signed certificate), `--timeout 5m`.
    It asks you to type `yes` before the write. If the box or your phone asks for a
-   confirmation during the import, confirm it, then answer the two follow-up questions.
+   confirmation during the import, confirm it, then answer the two follow-up questions. On
+   one box the import completed in about a second without any confirmation; other boxes may
+   still ask for one.
 4. Review the output file (default `fritzprobe-<YYYYMMDD-HHMMSS>.txt`) by reading all of it.
    Credentials, session IDs, serials, hostnames and all contact data outside `Test` are
    replaced by placeholders, and the probe refuses to write a file in which a registered

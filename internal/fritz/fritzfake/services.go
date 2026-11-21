@@ -1,6 +1,7 @@
 package fritzfake
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -41,6 +42,10 @@ func (b *Box) digestOK(r *http.Request) bool {
 }
 
 func (b *Box) handleTR064(w http.ResponseWriter, r *http.Request) {
+	if b.NoTR064 && r.URL.Path == "/upnp/control/x_contact" {
+		http.NotFound(w, r)
+		return
+	}
 	if !b.digestOK(r) {
 		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Digest realm=%q, nonce=%q, qop="auth", algorithm=MD5`, digestRealm, digestNonce))
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -183,10 +188,14 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(io.LimitReader(p, 1<<24))
 		names = append(names, p.FormName())
 		vals[p.FormName()] = data
-		if p.FormName() == "PhonebookImportFile" && (p.FileName() != "fritzbook.xml" || p.Header.Get("Content-Type") != "text/xml") {
+		if p.FormName() == "PhonebookImportFile" && p.FileName() != "" && (p.FileName() != "fritzbook.xml" || p.Header.Get("Content-Type") != "text/xml") {
 			http.Error(w, "bad import file part", http.StatusBadRequest)
 			return
 		}
+	}
+	if strings.Join(names, ",") == "sid,PhonebookId,PhonebookExportName,PhonebookExport" {
+		b.handleMultipartExport(w, r, vals)
+		return
 	}
 	if strings.Join(names, ",") != "sid,PhonebookId,PhonebookImportFile" {
 		http.Error(w, "bad field order: "+strings.Join(names, ","), http.StatusBadRequest)
@@ -208,7 +217,11 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 	defer b.mu.Unlock()
 	for i := range b.Phonebooks {
 		if b.Phonebooks[i].ID == id {
-			b.Phonebooks[i].XML = vals["PhonebookImportFile"]
+			if b.ImportAppends {
+				b.Phonebooks[i].XML = appendContacts(b.Phonebooks[i].XML, vals["PhonebookImportFile"])
+			} else {
+				b.Phonebooks[i].XML = vals["PhonebookImportFile"]
+			}
 			b.imports = append(b.imports, id)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if b.ImportAnswer != "" {
@@ -220,6 +233,46 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "no such phonebook", http.StatusNotFound)
+}
+
+// appendContacts adds the <contact> elements of add before </phonebook> in base.
+func appendContacts(base, add []byte) []byte {
+	i, j, k := bytes.Index(add, []byte("<contact>")), bytes.LastIndex(add, []byte("</contact>")), bytes.LastIndex(base, []byte("</phonebook>"))
+	if i < 0 || j < 0 || k < 0 {
+		return base
+	}
+	out := append([]byte(nil), base[:k]...)
+	out = append(out, add[i:j+len("</contact>")]...)
+	return append(out, base[k:]...)
+}
+
+// handleMultipartExport answers the multipart variant of the export. Like the real box seems
+// to, the fake rejects it with a redirect to the login page unless MultipartExportWorks is set.
+func (b *Box) handleMultipartExport(w http.ResponseWriter, r *http.Request, vals map[string][]byte) {
+	id, _ := strconv.Atoi(string(vals["PhonebookId"]))
+	if !b.MultipartExportWorks || string(vals["sid"]) != validSID || b.phonebookName(id) != string(vals["PhonebookExportName"]) || b.phonebookName(id) == "" {
+		http.Redirect(w, r, "/index.lua", http.StatusFound)
+		return
+	}
+	if b.ServeOtherID != nil {
+		id = *b.ServeOtherID
+	}
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	w.Write(b.PhonebookXML(id))
+}
+
+var rePBOpen = regexp.MustCompile(`<phonebook\b`)
+
+// renderPhonebookLua turns stored XML into the format of the real phonebook.lua download.
+func (b *Box) renderPhonebookLua(id int, x []byte) []byte {
+	s := string(x)
+	n := strings.Count(s, "<contact>")
+	s = strings.Replace(s, "<phonebooks>", fmt.Sprintf("<phonebooks><!-- id:%d , name: %s -->", id, b.phonebookName(id)), 1)
+	if loc := rePBOpen.FindStringIndex(s); loc != nil {
+		end := loc[1] + strings.Index(s[loc[1]:], ">") + 1
+		s = s[:loc[0]] + `<phonebook owner="1"` + s[loc[0]+len("<phonebook"):end] + fmt.Sprintf("<timestamp>1700000000</timestamp><!-- number of contacts %d -->", n) + s[end:]
+	}
+	return []byte(s)
 }
 
 func (b *Box) phonebookName(id int) string {
@@ -247,11 +300,19 @@ func (b *Box) handlePhonebookURL(w http.ResponseWriter, r *http.Request) {
 	if b.ServeOtherID != nil {
 		id = *b.ServeOtherID
 	}
+	if b.LuaForbiddenID != nil && *b.LuaForbiddenID == id {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	x := b.PhonebookXML(id)
 	if r.URL.Query().Get("sid") != validSID || x == nil {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	b.mu.Lock()
+	b.fetches = append(b.fetches, id)
+	b.mu.Unlock()
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	w.Write(x)
+	w.Header().Set("Content-Disposition", "attachment; filename=pbook.xml")
+	w.Write(b.renderPhonebookLua(id, x))
 }

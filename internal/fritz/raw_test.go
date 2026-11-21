@@ -114,3 +114,17 @@ func TestExportRaw_WrongNameBouncesToLoginPage(t *testing.T) {
 		t.Errorf("requests = %v", reqs)
 	}
 }
+
+func TestExportPhonebookMultipartRaw(t *testing.T) {
+	b := testBox()
+	c := newLoggedIn(t, b)
+	status, body, err := c.ExportPhonebookMultipartRaw(context.Background(), 1, "Test")
+	if err != nil || strings.Contains(string(body), "<phonebook") {
+		t.Fatalf("default fake bounces it: %d %q %v", status, body, err)
+	}
+	b.MultipartExportWorks = true // the fake asserts the field order
+	status, body, err = c.ExportPhonebookMultipartRaw(context.Background(), 1, "Test")
+	if err != nil || status != 200 || !strings.Contains(string(body), `name="Test"`) {
+		t.Fatalf("got %d %q %v", status, body, err)
+	}
+}

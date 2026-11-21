@@ -97,7 +97,7 @@ func TestProbe_WritesOnlyToTest(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "ID 0: export ok, 1 contacts", "phonebook URL fetch: status 200", "unchanged", "after: 3 contacts"} {
+	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebooks before: ID 0: 1 contacts", "phonebook URL fetch of Test: status 200", "after: 3 contacts in Test; 3 of 3 probe contacts present; 0 previous contacts remain", "filename=pbook.xml", "unchanged", "after: 3 contacts in Test"} {
 		if !strings.Contains(r.trace, want) {
 			t.Errorf("trace lacks %q", want)
 		}
@@ -163,14 +163,12 @@ func TestProbe_FindsTestViaTR064WhenExportListingFails(t *testing.T) {
 		t.Error("login page not replaced by a placeholder")
 	}
 	// the TR-064 URL is fetched for Test only
-	n := 0
-	for _, q := range b.Requests() {
-		if q == "GET /phonebook.lua" {
-			n++
-		}
+	n := map[int]int{}
+	for _, id := range b.PhonebookFetches() {
+		n[id]++
 	}
-	if n != 1 {
-		t.Errorf("phonebook.lua requests = %d, want 1", n)
+	if n[1] != 2 || n[0] != 2 { // Test and the other book, before and after the import
+		t.Errorf("phonebook.lua fetches = %v", n)
 	}
 }
 
@@ -205,7 +203,7 @@ func TestProbe_NonTestBooksNeverRecorded(t *testing.T) {
 	if !strings.Contains(r.trace, "[response body omitted:") {
 		t.Error("non-Test export bodies should be omitted")
 	}
-	if !strings.Contains(r.trace, "ID 0: export ok, 1 contacts") || !strings.Contains(r.trace, "non-Test phonebook contact counts unchanged") {
+	if !strings.Contains(r.trace, "other phonebooks before: ID 0: 1 contacts") || !strings.Contains(r.trace, "non-Test phonebook contact counts unchanged") {
 		t.Error("counts missing")
 	}
 }
@@ -239,7 +237,7 @@ func TestProbe_PhonebookURLHostnameRedacted(t *testing.T) {
 	if strings.Contains(r.trace, "maria") {
 		t.Errorf("trace contains the host name")
 	}
-	if !strings.Contains(r.trace, "phonebook URL fetch: status 200") {
+	if !strings.Contains(r.trace, "phonebook URL fetch of Test: status 200") {
 		t.Error("URL fetch not performed")
 	}
 }
@@ -269,7 +267,7 @@ func TestProbe_OmittedExportHeadersAndNames(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	if !strings.Contains(r.trace, "Test.xml") {
+	if !strings.Contains(r.trace, "filename=pbook.xml") {
 		t.Error("Test book export headers should be kept")
 	}
 }
@@ -314,5 +312,53 @@ func TestProbe_BoxIgnoringIDNeverRecordsOtherBook(t *testing.T) {
 		if !strings.Contains(r.trace, "WARNING: response of step") {
 			t.Errorf("%s: no warning in the trace", name)
 		}
+	}
+}
+
+const twoContactsXML = `<?xml version="1.0"?><phonebooks><phonebook name="Test"><contact><person><realName>Old One</realName></person></contact><contact><person><realName>Old Two</realName></person></contact></phonebook></phonebooks>`
+
+func TestProbe_ReplaceOrAppendVerdict(t *testing.T) {
+	for appends, want := range map[bool]string{false: "0 previous contacts remain (before: 2) -> import replaced", true: "2 previous contacts remain (before: 2) -> import appended"} {
+		b := box(privat, fritzfake.Phonebook{ID: 1, Name: "Test", XML: []byte(twoContactsXML)})
+		b.ImportAppends = appends
+		r := runProbe(t, b, "yes\ny\ny\n")
+		if r.code != 0 || !strings.Contains(r.trace, want) {
+			t.Errorf("appends=%v: want %q in trace (exit %d)", appends, want, r.code)
+		}
+	}
+}
+
+func TestProbe_UnverifiedWhenOtherCountsUnreadable(t *testing.T) {
+	zero := 0
+	b := box(privat, testPB)
+	b.LuaForbiddenID = &zero
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "UNVERIFIED: could not read the contact count of other phonebooks") || !strings.Contains(r.stdout, "UNVERIFIED") {
+		t.Error("no UNVERIFIED notice")
+	}
+	if strings.Contains(r.trace, "counts unchanged") || strings.Contains(r.trace, "-1 contacts") || strings.Contains(r.trace, "map[") {
+		t.Errorf("trace claims unchanged or shows -1:\n%s", r.trace)
+	}
+}
+
+func TestProbe_MultipartExportExperiment(t *testing.T) {
+	b := box(privat, testPB)
+	b.MultipartExportWorks = true
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "multipart export: status 200, phonebook with 0 contacts") {
+		t.Error("multipart export result missing")
+	}
+	r = runProbe(t, box(privat, testPB), "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "multipart export: status 200, not a phonebook") {
+		t.Error("bounced multipart export not noted")
+	}
+}
+
+func TestProbe_AbortsWithoutTR064(t *testing.T) {
+	b := box(privat, testPB)
+	b.NoTR064 = true
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if r.code == 0 || len(b.Imports()) != 0 || !strings.Contains(r.err, "no write without a TR-064-confirmed name") {
+		t.Errorf("exit %d, imports %v, stderr %q", r.code, b.Imports(), r.err)
 	}
 }

@@ -30,6 +30,25 @@ func (c *Client) ExportPhonebookRaw(ctx context.Context, id int, name string) (s
 	return c.firmwarecfg(ctx, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 }
 
+// ExportPhonebookMultipartRaw is ExportPhonebookRaw with a multipart/form-data body (fields
+// sid, PhonebookId, PhonebookExportName, PhonebookExport in this order).
+func (c *Client) ExportPhonebookMultipartRaw(ctx context.Context, id int, name string) (status int, body []byte, err error) {
+	if c.SID == "" {
+		return 0, nil, ErrNotLoggedIn
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for _, f := range [][2]string{{"sid", c.SID}, {"PhonebookId", strconv.Itoa(id)}, {"PhonebookExportName", name}, {"PhonebookExport", ""}} {
+		if err := mw.WriteField(f[0], f[1]); err != nil {
+			return 0, nil, err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return 0, nil, err
+	}
+	return c.firmwarecfg(ctx, mw.FormDataContentType(), &buf)
+}
+
 // ImportPhonebookRaw uploads xml into phonebook id via cgi-bin/firmwarecfg and returns the
 // status and body without interpreting them.
 func (c *Client) ImportPhonebookRaw(ctx context.Context, id int, xml []byte) (status int, body []byte, err error) {

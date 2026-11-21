@@ -30,24 +30,29 @@ type Phonebook struct {
 // Box is the fake. Configure the exported fields before Start; read the recorded state
 // through the locked accessors Requests, WasLoggedOut, Imports and PhonebookXML.
 type Box struct {
-	User, Password string
-	Phonebooks     []Phonebook
-	BlockTime      int    // seconds; >0 makes the login endpoint report a block
-	OldFirmware    bool   // serve a pre-7.24 challenge
-	Model          string // DeviceInfo model; default "FRITZ!Box 7590"
-	Firmware       string // DeviceInfo FRITZ!OS version; default "7.57"
-	ImportAnswer   string // HTML answer to a successful import; default "Import successful"
-	PhonebookHost  string // host name put into NewPhonebookURL instead of the request host
-	BrokenBookID   *int   // GetPhonebook for this ID answers with a fault
-	ImportRedirect bool   // imports are answered with a redirect to the login page
-	ServeOtherID   *int   // exports and phonebook.lua serve this ID's XML whatever was asked (box ignoring the ID)
-	ExportBroken   bool   // every firmwarecfg export is answered with the login redirect
-	ImportTarget   *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
+	User, Password       string
+	Phonebooks           []Phonebook
+	BlockTime            int    // seconds; >0 makes the login endpoint report a block
+	OldFirmware          bool   // serve a pre-7.24 challenge
+	Model                string // DeviceInfo model; default "FRITZ!Box 7590"
+	Firmware             string // DeviceInfo FRITZ!OS version; default "7.57"
+	ImportAnswer         string // HTML answer to a successful import; default "Import successful"
+	PhonebookHost        string // host name put into NewPhonebookURL instead of the request host
+	BrokenBookID         *int   // GetPhonebook for this ID answers with a fault
+	ImportRedirect       bool   // imports are answered with a redirect to the login page
+	ServeOtherID         *int   // exports and phonebook.lua serve this ID's XML whatever was asked (box ignoring the ID)
+	ImportAppends        bool   // imports add contacts instead of replacing the phonebook
+	MultipartExportWorks bool   // the multipart firmwarecfg export is served (otherwise bounced to the login page)
+	LuaForbiddenID       *int   // phonebook.lua answers 403 for this pbid
+	NoTR064              bool   // the TR-064 phonebook service answers 404
+	ExportBroken         bool   // every firmwarecfg export is answered with the login redirect
+	ImportTarget         *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
 
 	mu        sync.Mutex
 	requests  []string
 	loggedOut bool
 	imports   []int
+	fetches   []int
 }
 
 // Requests returns a copy of the "METHOD path" log in arrival order.
@@ -69,6 +74,13 @@ func (b *Box) Imports() []int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]int(nil), b.imports...)
+}
+
+// PhonebookFetches returns the pbid of every phonebook.lua download, in order.
+func (b *Box) PhonebookFetches() []int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]int(nil), b.fetches...)
 }
 
 // PhonebookXML returns a copy of the XML currently held for phonebook id, or nil.

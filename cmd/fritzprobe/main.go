@@ -192,61 +192,27 @@ func (p *probe) steps() error {
 
 	p.step(3, "TR-064 phonebook list")
 	// names and urls come from TR-064, the authoritative source. Names of phonebooks other
-	// than Test are used for requests only and never logged.
+	// than Test are used for matching only and never logged.
 	names := map[int]string{}
 	urls := map[int]string{}
-	var tr064IDs []int
-	if ids, err := p.c.PhonebookIDsTR064(ctx); err != nil {
+	ids, err := p.c.PhonebookIDsTR064(ctx)
+	if err != nil {
 		p.rec.Note("TR-064 GetPhonebookList failed: %v", err)
-	} else {
-		p.rec.Note("TR-064 phonebook IDs: %v", ids)
-		for _, id := range ids {
-			name, u, err := p.c.PhonebookTR064(ctx, id)
-			if err != nil {
-				p.rec.Note("TR-064 GetPhonebook %d failed: %v", id, err)
-				// the unknown book might be Test; do not go on to a write
-				return fmt.Errorf("cannot read the name of phonebook ID %d, aborting before any write", id)
-			}
-			names[id], urls[id] = name, u
-			p.guardName(name)
-			tr064IDs = append(tr064IDs, id)
+		return errors.New("TR-064 did not list the phonebooks; no write without a TR-064-confirmed name for the Test phonebook")
+	}
+	p.rec.Note("TR-064 phonebook IDs: %v", ids)
+	for _, id := range ids {
+		name, u, err := p.c.PhonebookTR064(ctx, id)
+		if err != nil {
+			p.rec.Note("TR-064 GetPhonebook %d failed: %v", id, err)
+			// the unknown book might be Test; do not go on to a write
+			return fmt.Errorf("cannot read the name of phonebook ID %d, aborting before any write", id)
 		}
+		names[id], urls[id] = name, u
+		p.guardName(name)
 	}
 
-	p.step(4, "firmwarecfg export check / fallback listing")
-	if len(tr064IDs) > 0 {
-		for _, id := range tr064IDs {
-			status, body, err := p.c.ExportPhonebookRaw(p.bodyCtx(ctx, names[id]), id, names[id])
-			if err != nil {
-				p.rec.Note("export of ID %d failed: %v", id, err)
-				continue
-			}
-			if info, err := fbxml.Inspect(bytes.NewReader(body)); err != nil {
-				p.rec.Note("ID %d: export status %d, not a phonebook", id, status)
-			} else {
-				p.rec.Note("ID %d: export ok, %d contacts", id, info.Contacts)
-			}
-		}
-	} else {
-		p.rec.Note("TR-064 gave no names; trying the export listing with an empty name (the box may reject it)")
-		for id := 0; id <= 9; id++ {
-			status, body, err := p.c.ExportPhonebookRaw(trace.OmitBody(ctx), id, "")
-			if err != nil {
-				p.rec.Note("export of ID %d failed: %v", id, err)
-				break
-			}
-			info, err := fbxml.Inspect(bytes.NewReader(body))
-			if err != nil {
-				p.rec.Note("ID %d: status %d, not a phonebook; listing stops", id, status)
-				break
-			}
-			names[id] = info.Name
-			p.guardName(info.Name)
-			p.rec.Note("ID %d: phonebook with %d contacts", id, info.Contacts)
-		}
-	}
-
-	p.step(5, "pick the phonebook named 'Test'")
+	p.step(4, "pick the phonebook named 'Test'")
 	var testIDs []int
 	others := map[int]string{} // non-Test phonebooks: only IDs and counts are ever logged
 	for id, name := range names {
@@ -262,17 +228,28 @@ func (p *probe) steps() error {
 	id := testIDs[0]
 	p.rec.Note("Test phonebook has ID %d", id)
 
-	p.step(6, "export Test (before)")
-	othersBefore := p.otherCounts(ctx, others)
-	_, body, err := p.c.ExportPhonebookRaw(p.bodyCtx(ctx, testBook), id, testBook)
-	if err != nil {
-		return err
-	}
-	if info, err := fbxml.Inspect(bytes.NewReader(body)); err == nil {
-		p.rec.Note("before: %d contacts", info.Contacts)
+	p.step(5, "firmwarecfg multipart export experiment (Test only, read-only)")
+	status, body, err := p.c.ExportPhonebookMultipartRaw(p.bodyCtx(ctx, testBook), id, testBook)
+	switch {
+	case err != nil:
+		p.rec.Note("multipart export failed: %v", err)
+	default:
+		if info, ierr := fbxml.Inspect(bytes.NewReader(body)); ierr != nil {
+			p.rec.Note("multipart export: status %d, not a phonebook", status)
+		} else {
+			p.rec.Note("multipart export: status %d, phonebook with %d contacts", status, info.Contacts)
+		}
 	}
 
-	p.fetchPhonebookURL(ctx, id, urls[id])
+	p.step(6, "read Test via the TR-064 phonebook URL (before) and count the other phonebooks")
+	othersBefore := p.otherCounts(ctx, others, urls)
+	p.noteOthers("before", othersBefore)
+	before, ok := p.readTest(ctx, urls[id])
+	if ok {
+		p.rec.Note("before: %d contacts in Test", before.count)
+	} else {
+		p.rec.Note("before: could not read Test via the phonebook URL")
+	}
 
 	p.step(7, "confirm the write")
 	p.say("Planned write: import 3 synthetic contacts (Probe Contact 1-3) into the phonebook %q (ID %d).", testBook, id)
@@ -320,62 +297,112 @@ func (p *probe) steps() error {
 	p.rec.Note("Did the box ask for confirmation? %s", p.ask("Did the box ask for confirmation? (y/n)"))
 	p.rec.Note("Did you confirm it? %s", p.ask("Did you confirm it? (y/n)"))
 
-	p.step(10, "export Test (after)")
-	_, body, err = p.c.ExportPhonebookRaw(p.bodyCtx(ctx, testBook), id, testBook)
-	if err != nil {
-		return err
-	}
-	if info, err := fbxml.Inspect(bytes.NewReader(body)); err != nil {
-		p.rec.Note("after: not a phonebook: %v", err)
+	p.step(10, "read Test via the TR-064 phonebook URL (after)")
+	if after, ok := p.readTest(ctx, urls[id]); !ok {
+		p.rec.Note("after: could not read Test via the phonebook URL")
 	} else {
-		p.rec.Note("after: %d contacts", info.Contacts)
+		present := 0
+		for i := 1; i <= 3; i++ {
+			if bytes.Contains(after.body, []byte(fmt.Sprintf("Probe Contact %d", i))) {
+				present++
+			}
+		}
+		prev := after.count - present
+		verdict := "replaced"
+		if prev > 0 {
+			verdict = "appended"
+		}
+		p.rec.Note("after: %d contacts in Test; %d of 3 probe contacts present; %d previous contacts remain (before: %d) -> import %s the contents", after.count, present, prev, before.count, verdict)
 	}
-	othersAfter := p.otherCounts(ctx, others)
+	othersAfter := p.otherCounts(ctx, others, urls)
+	p.noteOthers("after", othersAfter)
 	var changed []int
-	for id, n := range othersBefore {
-		if othersAfter[id] != n {
+	unknown := false
+	for id, b := range othersBefore {
+		a := othersAfter[id]
+		switch {
+		case !b.ok || !a.ok:
+			unknown = true
+		case a.count != b.count:
 			changed = append(changed, id)
 		}
 	}
 	sort.Ints(changed)
-	if len(changed) > 0 {
+	switch {
+	case len(changed) > 0:
 		p.rec.Note("WARNING: the contact count of non-Test phonebook IDs %v changed during the import; the box may ignore PhonebookId. Restore them from your backup.", changed)
 		p.say("WARNING: other phonebooks (IDs %v) changed. Restore them from your backup.", changed)
-	} else {
-		p.rec.Note("non-Test phonebook contact counts unchanged: %v", othersAfter)
+	case unknown:
+		msg := "UNVERIFIED: could not read the contact count of other phonebooks before/after the import - compare them manually against your backup"
+		p.rec.Note("%s", msg)
+		p.say("%s", msg)
+	case len(others) == 0:
+		p.rec.Note("no other phonebooks exist")
+	default:
+		p.rec.Note("non-Test phonebook contact counts unchanged")
 	}
 	return nil
 }
 
-// otherCounts exports each non-Test phonebook and returns its contact count (-1 if unreadable).
-// Names and contact data are never logged by the probe itself.
-func (p *probe) otherCounts(ctx context.Context, names map[int]string) map[int]int {
-	counts := map[int]int{}
-	for id, name := range names {
-		counts[id] = -1
-		if _, body, err := p.c.ExportPhonebookRaw(trace.OmitBody(ctx), id, name); err == nil {
-			if info, err := fbxml.Inspect(bytes.NewReader(body)); err == nil {
-				counts[id] = info.Contacts
-			}
-		}
+type count struct {
+	count int
+	ok    bool
+	name  string
+	body  []byte
+}
+
+// otherCounts reads each non-Test phonebook through its TR-064 URL with the body omitted
+// and returns the contact counts. Names and contact data are never recorded.
+func (p *probe) otherCounts(ctx context.Context, names map[int]string, urls map[int]string) map[int]count {
+	counts := map[int]count{}
+	for id := range names {
+		c, _ := p.fetchBook(trace.OmitBody(ctx), urls[id])
+		c.body = nil
+		counts[id] = c
 	}
 	return counts
 }
 
-// fetchPhonebookURL does a read-only GET of the NewPhonebookURL TR-064 returned for the Test
-// phonebook (never for other books) to learn whether a read-only export route exists.
-func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
-	p.rec.Note("read-only check: GET the TR-064 phonebook URL of Test (ID %d)", id)
+// noteOthers records the known counts (never names); unknown ones are said to be unknown.
+func (p *probe) noteOthers(when string, m map[int]count) {
+	ids := make([]int, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	var parts []string
+	for _, id := range ids {
+		if m[id].ok {
+			parts = append(parts, fmt.Sprintf("ID %d: %d contacts", id, m[id].count))
+		} else {
+			parts = append(parts, fmt.Sprintf("ID %d: unknown", id))
+		}
+	}
+	p.rec.Note("other phonebooks %s: %s", when, strings.Join(parts, "; "))
+}
+
+// readTest reads the Test phonebook via its URL, keeping the body in the trace unless the
+// box answers with another phonebook (trace.ExpectPhonebook).
+func (p *probe) readTest(ctx context.Context, u string) (count, bool) {
+	c, status := p.fetchBook(trace.ExpectPhonebook(trace.KeepBody(ctx), testBook, true), u)
+	if c.ok && c.name != testBook {
+		p.rec.Note("WARNING: the phonebook URL of Test served another phonebook")
+		c = count{}
+	}
+	p.rec.Note("phonebook URL fetch of Test: status %d, parsed=%v, contacts=%d", status, c.ok, c.count)
+	return c, c.ok
+}
+
+// fetchBook does a read-only GET of a NewPhonebookURL and parses the contact count.
+func (p *probe) fetchBook(ctx context.Context, u string) (count, int) {
 	if u == "" {
-		p.rec.Note("no phonebook URL from TR-064")
-		return
+		return count{}, 0
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(trace.ExpectPhonebook(trace.KeepBody(ctx), testBook, true), http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		p.rec.Note("phonebook URL fetch: cannot build request")
-		return
+		return count{}, 0
 	}
 	// the box chooses this host; keep a host name out of the request line and Referer headers
 	if h := req.URL.Hostname(); net.ParseIP(h) == nil {
@@ -389,15 +416,18 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 			err = ue.Err // the URL carries the SID
 		}
 		p.rec.Note("phonebook URL fetch failed: %v", err)
-		return
+		return count{}, 0
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, 64<<20))
-	if info, err := fbxml.Inspect(bytes.NewReader(body)); err != nil {
-		p.rec.Note("phonebook URL fetch: status %d, content-type %q, not a phonebook", res.StatusCode, res.Header.Get("Content-Type"))
-	} else {
-		p.rec.Note("phonebook URL fetch: status %d, content-type %q, phonebook with %d contacts", res.StatusCode, res.Header.Get("Content-Type"), info.Contacts)
+	if res.StatusCode != http.StatusOK {
+		return count{}, res.StatusCode
 	}
+	info, err := fbxml.Inspect(bytes.NewReader(body))
+	if err != nil {
+		return count{}, res.StatusCode
+	}
+	return count{count: info.Contacts, ok: true, name: info.Name, body: body}, res.StatusCode
 }
 
 // Error text in notes (p.rec.Note("... failed: %v", err)) cannot carry box data: fritz.Client.do
