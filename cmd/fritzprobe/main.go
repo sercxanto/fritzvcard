@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/xml"
 	"errors"
 	"flag"
 	"fmt"
@@ -175,6 +176,10 @@ func (p *probe) ask(q string) string {
 // steps runs steps 1-10. The caller logs out and writes the trace.
 func (p *probe) steps() error {
 	ctx := context.Background()
+	// Run-specific marker: names and numbers of the probe contacts differ per run, so the
+	// verdict cannot be fooled by contacts left behind by an earlier run.
+	tag := p.env.Now().Format("150405")
+	probeName := func(i int) string { return fmt.Sprintf("Probe Contact %d %s", i, tag) }
 
 	p.step(1, "login")
 	if err := p.c.Login(ctx, p.user, p.password); err != nil {
@@ -229,30 +234,35 @@ func (p *probe) steps() error {
 	p.rec.Note("Test phonebook has ID %d", id)
 
 	p.step(5, "firmwarecfg multipart export experiment (Test only, read-only)")
-	status, body, err := p.c.ExportPhonebookMultipartRaw(p.bodyCtx(ctx, testBook), id, testBook)
+	// Do not follow redirects, so the note matches the first hop shown in the trace.
+	noRedirect := *p.c
+	hc := *p.c.HTTP
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	noRedirect.HTTP = &hc
+	status, body, err := noRedirect.ExportPhonebookMultipartRaw(trace.KeepBody(p.bodyCtx(ctx, testBook)), id, testBook)
 	switch {
 	case err != nil:
 		p.rec.Note("multipart export failed: %v", err)
 	default:
 		if info, ierr := fbxml.Inspect(bytes.NewReader(body)); ierr != nil {
-			p.rec.Note("multipart export: status %d, not a phonebook", status)
+			p.rec.Note("multipart export: first-hop status %d, not a phonebook", status)
 		} else {
-			p.rec.Note("multipart export: status %d, phonebook with %d contacts", status, info.Contacts)
+			p.rec.Note("multipart export: first-hop status %d, phonebook with %d contacts", status, info.Contacts)
 		}
 	}
 
 	p.step(6, "read Test via the TR-064 phonebook URL (before) and count the other phonebooks")
 	othersBefore := p.otherCounts(ctx, others, urls)
 	p.noteOthers("before", othersBefore)
-	before, ok := p.readTest(ctx, urls[id])
-	if ok {
+	before, haveBefore := p.readTest(ctx, urls[id])
+	if haveBefore {
 		p.rec.Note("before: %d contacts in Test", before.count)
 	} else {
 		p.rec.Note("before: could not read Test via the phonebook URL")
 	}
 
 	p.step(7, "confirm the write")
-	p.say("Planned write: import 3 synthetic contacts (Probe Contact 1-3) into the phonebook %q (ID %d).", testBook, id)
+	p.say("Planned write: import 3 synthetic contacts (%s, %s, %s) into the phonebook %q (ID %d).", probeName(1), probeName(2), probeName(3), testBook, id)
 	p.say("No other phonebook is touched.")
 	if p.ask("Type 'yes' to continue:") != "yes" {
 		p.rec.Note("human did not answer yes; nothing written")
@@ -263,8 +273,8 @@ func (p *probe) steps() error {
 	var cs []contacts.Contact
 	for i := 1; i <= 3; i++ {
 		cs = append(cs, contacts.Contact{
-			Name:    fmt.Sprintf("Probe Contact %d", i),
-			Numbers: []contacts.Number{{Value: fmt.Sprintf("+49 30 000000000%d", i), Type: "home", Prio: true}},
+			Name:    probeName(i),
+			Numbers: []contacts.Number{{Value: fmt.Sprintf("+49 30 0000%s%d", tag, i), Type: "home", Prio: true}},
 		})
 	}
 	var xmlBuf bytes.Buffer
@@ -299,20 +309,19 @@ func (p *probe) steps() error {
 
 	p.step(10, "read Test via the TR-064 phonebook URL (after)")
 	if after, ok := p.readTest(ctx, urls[id]); !ok {
-		p.rec.Note("after: could not read Test via the phonebook URL")
+		p.rec.Note("after: could not read Test via the phonebook URL; import verdict: %s", verdict(before, haveBefore, after, false, 0))
 	} else {
+		names := realNames(after.body)
 		present := 0
 		for i := 1; i <= 3; i++ {
-			if bytes.Contains(after.body, []byte(fmt.Sprintf("Probe Contact %d", i))) {
-				present++
+			for _, n := range names {
+				if n == probeName(i) {
+					present++
+					break
+				}
 			}
 		}
-		prev := after.count - present
-		verdict := "replaced"
-		if prev > 0 {
-			verdict = "appended"
-		}
-		p.rec.Note("after: %d contacts in Test; %d of 3 probe contacts present; %d previous contacts remain (before: %d) -> import %s the contents", after.count, present, prev, before.count, verdict)
+		p.rec.Note("after: %d contacts in Test; %d of 3 probe contacts present; import verdict: %s", after.count, present, verdict(before, haveBefore, after, true, present))
 	}
 	othersAfter := p.otherCounts(ctx, others, urls)
 	p.noteOthers("after", othersAfter)
@@ -328,20 +337,64 @@ func (p *probe) steps() error {
 		}
 	}
 	sort.Ints(changed)
-	switch {
-	case len(changed) > 0:
+	if len(changed) > 0 {
 		p.rec.Note("WARNING: the contact count of non-Test phonebook IDs %v changed during the import; the box may ignore PhonebookId. Restore them from your backup.", changed)
 		p.say("WARNING: other phonebooks (IDs %v) changed. Restore them from your backup.", changed)
-	case unknown:
+	}
+	if unknown {
 		msg := "UNVERIFIED: could not read the contact count of other phonebooks before/after the import - compare them manually against your backup"
 		p.rec.Note("%s", msg)
 		p.say("%s", msg)
-	case len(others) == 0:
-		p.rec.Note("no other phonebooks exist")
-	default:
-		p.rec.Note("non-Test phonebook contact counts unchanged")
+	}
+	if len(changed) == 0 && !unknown {
+		if len(others) == 0 {
+			p.rec.Note("no other phonebooks exist")
+		} else {
+			p.rec.Note("non-Test phonebook contact counts unchanged")
+		}
 	}
 	return nil
+}
+
+// verdict tells from the before/after state whether THIS run's import landed and whether it
+// replaced or appended to the contents of Test.
+func verdict(before count, haveBefore bool, after count, haveAfter bool, present int) string {
+	switch {
+	case !haveBefore || !haveAfter:
+		return "unknown (Test could not be read before or after)"
+	case present < 3:
+		return fmt.Sprintf("import not visible (%d of 3 present)", present)
+	case before.count == 0:
+		return "ambiguous (Test was empty before)"
+	case after.count == 3:
+		return "replaced"
+	case after.count == before.count+3:
+		return "appended"
+	}
+	return fmt.Sprintf("unexpected (before %d, after %d)", before.count, after.count)
+}
+
+// realNames returns the text of every <realName> element.
+func realNames(body []byte) []string {
+	dec := xml.NewDecoder(bytes.NewReader(body))
+	var out []string
+	in := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			in = t.Name.Local == "realName"
+		case xml.EndElement:
+			in = false
+		case xml.CharData:
+			if in {
+				out = append(out, strings.TrimSpace(string(t)))
+			}
+		}
+	}
 }
 
 type count struct {
@@ -357,6 +410,9 @@ func (p *probe) otherCounts(ctx context.Context, names map[int]string, urls map[
 	counts := map[int]count{}
 	for id := range names {
 		c, _ := p.fetchBook(trace.OmitBody(ctx), urls[id])
+		if c.ok && c.name != names[id] {
+			c = count{} // the box served another phonebook: unknown (names are never logged)
+		}
 		c.body = nil
 		counts[id] = c
 	}
@@ -377,6 +433,9 @@ func (p *probe) noteOthers(when string, m map[int]count) {
 		} else {
 			parts = append(parts, fmt.Sprintf("ID %d: unknown", id))
 		}
+	}
+	if len(parts) == 0 {
+		parts = []string{"none"}
 	}
 	p.rec.Note("other phonebooks %s: %s", when, strings.Join(parts, "; "))
 }

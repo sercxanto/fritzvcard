@@ -70,8 +70,11 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
    one multipart `firmwarecfg` export experiment for `Test`, and a GET of each phonebook's
    TR-064 download URL (`phonebook.lua`). The other phonebooks are read only to compare their
    contact counts before and after the import; their names and contents are never recorded.
-   After the import the probe re-reads `Test` and says whether the import replaced or appended
-   to its contents. If a count of another phonebook cannot be read it prints `UNVERIFIED`;
+   The probe contacts carry a per-run tag (`Probe Contact 1 <HHMMSS>`); after the import the probe
+   re-reads `Test` and reports a verdict: `replaced`, `appended`, `import not visible`,
+   `ambiguous (Test was empty before)`, `unknown` or `unexpected`. `Test`'s contents are
+   recorded verbatim (before and after) in the shared file, so empty `Test` or check its
+   contents before the run. If a count of another phonebook cannot be read it prints `UNVERIFIED`;
    then compare the phonebooks manually against your backup.
 2. Build it on a machine that can reach the box: `task probe` produces `dist/fritzprobe`
    (default `darwin/arm64`; override with `GOOS=... GOARCH=...`).

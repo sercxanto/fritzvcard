@@ -97,7 +97,7 @@ func TestProbe_WritesOnlyToTest(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebooks before: ID 0: 1 contacts", "phonebook URL fetch of Test: status 200", "after: 3 contacts in Test; 3 of 3 probe contacts present; 0 previous contacts remain", "filename=pbook.xml", "unchanged", "after: 3 contacts in Test"} {
+	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebooks before: ID 0: 1 contacts", "phonebook URL fetch of Test: status 200", "after: 3 contacts in Test; 3 of 3 probe contacts present; import verdict: ambiguous (Test was empty before)", "filename=pbook.xml", "unchanged", "after: 3 contacts in Test"} {
 		if !strings.Contains(r.trace, want) {
 			t.Errorf("trace lacks %q", want)
 		}
@@ -132,6 +132,7 @@ func TestProbe_WarnsWhenOtherPhonebookChanges(t *testing.T) {
 	zero := 0
 	b := box(privat, testPB)
 	b.ImportTarget = &zero // the fake box ignores PhonebookId and writes to Privat
+	b.ImportAppends = true // keeping the book's name, so only its contact count changes
 	r := runProbe(t, b, "yes\ny\ny\n")
 	if !strings.Contains(r.trace, "WARNING: the contact count of non-Test phonebook IDs [0] changed") {
 		t.Errorf("trace lacks the warning:\n%s", r.trace)
@@ -318,7 +319,7 @@ func TestProbe_BoxIgnoringIDNeverRecordsOtherBook(t *testing.T) {
 const twoContactsXML = `<?xml version="1.0"?><phonebooks><phonebook name="Test"><contact><person><realName>Old One</realName></person></contact><contact><person><realName>Old Two</realName></person></contact></phonebook></phonebooks>`
 
 func TestProbe_ReplaceOrAppendVerdict(t *testing.T) {
-	for appends, want := range map[bool]string{false: "0 previous contacts remain (before: 2) -> import replaced", true: "2 previous contacts remain (before: 2) -> import appended"} {
+	for appends, want := range map[bool]string{false: "import verdict: replaced", true: "import verdict: appended"} {
 		b := box(privat, fritzfake.Phonebook{ID: 1, Name: "Test", XML: []byte(twoContactsXML)})
 		b.ImportAppends = appends
 		r := runProbe(t, b, "yes\ny\ny\n")
@@ -345,11 +346,11 @@ func TestProbe_MultipartExportExperiment(t *testing.T) {
 	b := box(privat, testPB)
 	b.MultipartExportWorks = true
 	r := runProbe(t, b, "yes\ny\ny\n")
-	if !strings.Contains(r.trace, "multipart export: status 200, phonebook with 0 contacts") {
+	if !strings.Contains(r.trace, "multipart export: first-hop status 200, phonebook with 0 contacts") {
 		t.Error("multipart export result missing")
 	}
 	r = runProbe(t, box(privat, testPB), "yes\ny\ny\n")
-	if !strings.Contains(r.trace, "multipart export: status 200, not a phonebook") {
+	if !strings.Contains(r.trace, "multipart export: first-hop status 302, not a phonebook") {
 		t.Error("bounced multipart export not noted")
 	}
 }
@@ -360,5 +361,74 @@ func TestProbe_AbortsWithoutTR064(t *testing.T) {
 	r := runProbe(t, b, "yes\ny\ny\n")
 	if r.code == 0 || len(b.Imports()) != 0 || !strings.Contains(r.err, "no write without a TR-064-confirmed name") {
 		t.Errorf("exit %d, imports %v, stderr %q", r.code, b.Imports(), r.err)
+	}
+}
+
+func bookWith(names ...string) fritzfake.Phonebook {
+	x := `<?xml version="1.0"?><phonebooks><phonebook name="Test">`
+	for _, n := range names {
+		x += `<contact><person><realName>` + n + `</realName></person></contact>`
+	}
+	return fritzfake.Phonebook{ID: 1, Name: "Test", XML: []byte(x + `</phonebook></phonebooks>`)}
+}
+
+func TestProbe_VerdictCannotBeFooled(t *testing.T) {
+	earlier := bookWith("Probe Contact 1 000000", "Probe Contact 2 000000", "Probe Contact 3 000000")
+	cases := []struct {
+		name  string
+		book  fritzfake.Phonebook
+		tweak func(*fritzfake.Box)
+		want  string
+	}{
+		{"noop, earlier probe contacts", earlier, func(b *fritzfake.Box) { b.ImportRedirect = true }, "import not visible (0 of 3 present)"},
+		{"noop, other contacts", bookWith("A One", "B Two"), func(b *fritzfake.Box) { b.ImportRedirect = true }, "import not visible (0 of 3 present)"},
+		{"noop, empty", testPB, func(b *fritzfake.Box) { b.ImportRedirect = true }, "import not visible (0 of 3 present)"},
+		{"empty before, real import", testPB, func(*fritzfake.Box) {}, "ambiguous (Test was empty before)"},
+		{"unreadable before", earlier, func(b *fritzfake.Box) { one := 1; b.LuaForbiddenID = &one }, "unknown (Test could not be read before or after)"},
+		{"real replace", earlier, func(*fritzfake.Box) {}, "replaced"},
+		{"real append", bookWith("A One", "B Two"), func(b *fritzfake.Box) { b.ImportAppends = true }, "appended"},
+	}
+	for _, c := range cases {
+		b := box(privat, c.book)
+		c.tweak(b)
+		r := runProbe(t, b, "yes\ny\ny\n")
+		if !strings.Contains(r.trace, "import verdict: "+c.want) {
+			t.Errorf("%s: want verdict %q in trace", c.name, c.want)
+		}
+	}
+	r := runProbe(t, box(privat, testPB), "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "Probe Contact 1 030405") {
+		t.Error("probe contacts lack the run tag")
+	}
+}
+
+func TestProbe_WarningAndUnverifiedTogether(t *testing.T) {
+	zero := 0
+	other := fritzfake.Phonebook{ID: 2, Name: "Other", XML: []byte(privatXML)}
+	b := box(privat, testPB, other)
+	b.ImportTarget = &zero // clobbers book 0, whose count changes; book 2 is unreadable
+	b.ImportAppends = true
+	two := 2
+	b.LuaForbiddenID = &two
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "WARNING: the contact count") || !strings.Contains(r.trace, "UNVERIFIED") {
+		t.Error("want both notices")
+	}
+}
+
+func TestProbe_NoOtherBooksNote(t *testing.T) {
+	r := runProbe(t, box(testPB), "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "other phonebooks before: none") {
+		t.Error("missing 'none'")
+	}
+}
+
+func TestProbe_ServedNameMismatchIsUnverified(t *testing.T) {
+	one := 1
+	b := box(privat, testPB)
+	b.ServeOtherID = &one // phonebook.lua serves Test's XML for the other book's URL
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "UNVERIFIED") || strings.Contains(r.trace, "counts unchanged") {
+		t.Error("a served name mismatch must make the other count unknown")
 	}
 }
