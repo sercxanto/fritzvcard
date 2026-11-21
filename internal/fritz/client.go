@@ -2,6 +2,7 @@
 package fritz
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -46,4 +47,18 @@ func New(baseURL string, httpClient *http.Client) (*Client, error) {
 		tr.Host = "[" + ip + "]:" + port
 	}
 	return &Client{BaseURL: u, TR064URL: &tr, HTTP: httpClient}, nil
+}
+
+// do sends req. Transport errors are *url.Error values that embed the full request URL,
+// which can carry the session ID; only the underlying cause is returned.
+func (c *Client) do(req *http.Request) (*http.Response, error) {
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return nil, ue.Err
+		}
+		return nil, err
+	}
+	return res, nil
 }

@@ -57,8 +57,30 @@ anonymized recordings under `testdata/probe/`. Conversion is tested with sample 
 
 ## Probe workflow
 
-To be completed. The probe program is run by a human against a real box; its output is reviewed,
-anonymized and stored under `testdata/probe/`.
+The probe (`cmd/fritzprobe`) records how a real box behaves, so the fake box and the upload
+code can be built from facts. A human runs it; agents never do (see AGENTS.md).
+
+1. Prepare the box: log in to the web interface, create exactly one phonebook named `Test`
+   (Telephony > Phonebook), and use a user that may edit contacts. The probe writes three
+   synthetic contacts (`Probe Contact 1-3`) into `Test` and nothing else; it refuses to write
+   if there is no or more than one phonebook named `Test`.
+2. Build it on a machine that can reach the box: `task probe` produces `dist/fritzprobe`
+   (default `darwin/arm64`; override with `GOOS=... GOARCH=...`).
+3. Run it on the host, with the password in the environment or typed at the echo-less prompt:
+
+   ```sh
+   FRITZBOX_PASSWORD=... ./dist/fritzprobe --host http://fritz.box --user <name>
+   ```
+
+   Options: `-o <file>`, `--insecure` (https with a self-signed certificate), `--timeout 5m`.
+   It asks you to type `yes` before the write. If the box or your phone asks for a
+   confirmation during the import, confirm it, then answer the two follow-up questions.
+4. Review the output file (default `fritzprobe-<YYYYMMDD-HHMMSS>.txt`) by reading all of it.
+   Credentials, session IDs, serials, hostnames and all contact data outside `Test` are
+   replaced by placeholders, and the probe refuses to write a file in which a registered
+   secret survived. Still check for anything personal before sharing.
+5. Store the reviewed file under `testdata/probe/` and commit it with a message like
+   `test(probe): add <model> FRITZ!OS <version> recording`.
 
 ## Conventions
 

@@ -108,7 +108,7 @@ func (c *Client) Logout(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.HTTP.Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return fmt.Errorf("logout: %w", err)
 	}
@@ -129,7 +129,7 @@ func (c *Client) sessionInfo(ctx context.Context, method, u string, body io.Read
 	if body != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	res, err := c.HTTP.Do(req)
+	res, err := c.do(req)
 	if err != nil {
 		return nil, fmt.Errorf("login: %w", err)
 	}

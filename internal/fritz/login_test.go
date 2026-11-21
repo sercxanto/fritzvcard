@@ -3,6 +3,7 @@ package fritz_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"fritzbook/internal/fritz"
@@ -65,8 +66,8 @@ func TestLogin_Success(t *testing.T) {
 		t.Errorf("SID = %q", c.SID)
 	}
 	want := []string{"GET /login_sid.lua", "POST /login_sid.lua"}
-	if len(b.Requests) != 2 || b.Requests[0] != want[0] || b.Requests[1] != want[1] {
-		t.Errorf("requests = %v, want %v", b.Requests, want)
+	if got := b.Requests(); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("requests = %v, want %v", got, want)
 	}
 }
 
@@ -112,10 +113,11 @@ func TestLogout(t *testing.T) {
 	if c.SID != "" {
 		t.Errorf("SID = %q, want empty", c.SID)
 	}
-	if got := b.Requests[len(b.Requests)-1]; got != "GET /login_sid.lua" {
+	reqs := b.Requests()
+	if got := reqs[len(reqs)-1]; got != "GET /login_sid.lua" {
 		t.Errorf("last request = %q", got)
 	}
-	if !b.LoggedOut {
+	if !b.WasLoggedOut() {
 		t.Error("box did not see logout")
 	}
 }
@@ -126,7 +128,28 @@ func TestLogout_NoSession(t *testing.T) {
 	if err := c.Logout(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Requests) != 0 {
-		t.Errorf("requests = %v", b.Requests)
+	if got := b.Requests(); len(got) != 0 {
+		t.Errorf("requests = %v", got)
+	}
+}
+
+func TestLogout_ErrorDoesNotLeakSID(t *testing.T) {
+	b := &fritzfake.Box{User: "alice", Password: "s3cret"}
+	srv := b.Start(t)
+	c, err := fritz.New(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Login(context.Background(), "alice", "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	sid := c.SID
+	srv.Close()
+	err = c.Logout(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), sid) || strings.Contains(err.Error(), "sid=") {
+		t.Errorf("error leaks the SID: %v", err)
 	}
 }
