@@ -13,5 +13,5 @@
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
     "HISTFILE": "/commandhistory/.bash_history"
   },
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /commandhistory && git config --global --add safe.directory ${containerWorkspaceFolder} && go install github.com/go-task/task/v3/cmd/task@v3.54.0"
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /commandhistory && git config --global --add safe.directory \"${containerWorkspaceFolder}\" && go install github.com/go-task/task/v3/cmd/task@v3.54.0"
 }

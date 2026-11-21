@@ -29,14 +29,25 @@ Builds and checks run through [Task](https://taskfile.dev) (`task --list`).
 
 ## Project layout
 
+Some of these files are created by later tasks.
+
 ```
-cmd/fritzbook/     CLI entry point
-cmd/fritzprobe/    probe program that records FRITZ!Box behavior (added later)
-internal/          application packages (added later)
-testdata/probe/    anonymized recordings from real boxes
-docs/superpowers/  design documents and plans
-.devcontainer/     DevContainer definition
-Taskfile.yml       build, test and lint tasks
+.devcontainer/devcontainer.json   DevContainer (Go 1.27, task, Claude Code, named volumes)
+Taskfile.yml                      build, build:all, test, lint, probe
+AGENTS.md / CLAUDE.md             agent rules (CLAUDE.md = "@AGENTS.md")
+CONTRIBUTING.md / README.md / LICENSE
+cmd/fritzbook/main.go             wires os.* into cli.Run
+cmd/fritzprobe/main.go            probe program (human runs it on the Mac)
+internal/contacts/                vCard → Contact model
+internal/fbxml/                   Contact model → FRITZ!Box XML; inspect XML
+internal/trace/                   anonymizer + recording http.RoundTripper
+internal/fritz/                   Client: login, TR-064, firmwarecfg, phonebook ops
+internal/fritz/fritzfake/         fake FRITZ!Box (httptest) for tests
+internal/cli/                     export / upload / version commands
+testdata/vcf/                     synthetic vCard fixtures
+testdata/probe/                   anonymized recordings (added by the human)
+docs/superpowers/                 design specs and implementation plans
+.github/workflows/ci.yml, release.yml
 ```
 
 ## Testing
