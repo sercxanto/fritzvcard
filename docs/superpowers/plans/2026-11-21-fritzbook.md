@@ -270,9 +270,9 @@ The agent **stops** and guides the human (in the conversation language). Nothing
 
 - [ ] **Step 1 (human, FRITZ!Box UI):** create a FRITZ!Box user for the tool (System → FRITZ!Box Users) with the rights the import needs (start with "FRITZ!Box Settings"; note in the trace notes if something else was needed); make sure "Allow access for applications" (TR-064) is enabled (Home Network → Network → Network Settings); create a phonebook named exactly `Test` (Telephony → Telephone Book → New Telephone Book).
 - [ ] **Step 2 (human, Mac terminal, outside the container):** `task probe` (or use the built `dist/fritzprobe`), then `./dist/fritzprobe --user <user>`; enter the password at the prompt; confirm on the phone when asked; answer the two questions.
-- [ ] **Step 3 (human):** read the generated file; remove anything that still looks private; save it as `testdata/probe/<YYYY-MM-DD>-6690-cable.txt`.
-- [ ] **Step 4 (agent):** read the recording and answer, in a short note appended to this plan under "Probe findings": (a) how listing works (TR-064 and/or export loop), (b) the exact export answer, (c) what the import answer looks like with 2FA — synchronous wait, a page that needs polling, or a separate endpoint — and what a success/failure looks like, (d) required user rights. If (c) is unclear, extend the probe and repeat this checkpoint. If `firmwarecfg` cannot complete with confirmation at all, **stop and re-decide with the human** (spec).
-- [ ] **Step 5 (agent):** update Task 9's "Behavior" bullets with the findings, then commit recording + plan update — `test: add anonymized probe recording`.
+- [x] **Step 3 (human):** read the generated file; remove anything that still looks private; save it as `testdata/probe/<YYYY-MM-DD>-6690-cable.txt`. **Done differently (owner's decision, 2026-11-21):** three probe rounds were run; the recordings stay local and git-ignored (`/fritzprobe-*.txt`), nothing was committed. The findings below are the substitute; `testdata/probe/` stays empty.
+- [x] **Step 4 (agent):** read the recording and answer, in a short note appended to this plan under "Probe findings". Done (see "Probe findings" at the end of this plan).
+- [x] **Step 5 (agent):** update Task 9's "Behavior" bullets with the findings. Done. The recording is **not** committed (see Step 3); the commit is `docs: record probe findings in the plan`.
 
 ---
 
@@ -280,7 +280,7 @@ The agent **stops** and guides the human (in the conversation language). Nothing
 
 **Files:**
 - Create: `internal/fritz/phonebook.go`, `internal/fritz/phonebook_test.go`
-- Modify: `internal/fritz/fritzfake/fake.go` (replay the recorded responses, including the 2FA path)
+- Modify: `internal/fritz/fritzfake/fake.go` (extend the fake from the "Probe findings" below, including a delayed-answer mode for the unobserved 2FA path; there is no recording to replay)
 
 **Interfaces:**
 - Consumes: Task 7 raw calls
@@ -291,16 +291,21 @@ The agent **stops** and guides the human (in the conversation language). Nothing
   func (c *Client) FindPhonebook(ctx context.Context, name string) (Phonebook, error) // exact, case-sensitive
   var ErrPhonebookNotFound  // "phonebook %q not found — create it in the FRITZ!Box web UI first"
   var ErrAmbiguousPhonebook // "several phonebooks are named %q"
-  func (c *Client) ExportPhonebook(ctx context.Context, id int) ([]byte, error) // validated by fbxml.Inspect
+  func (c *Client) ExportPhonebook(ctx context.Context, id int, name string) ([]byte, error) // multipart firmwarecfg export; the box needs the real name; validated by fbxml.Inspect
   type ConfirmFunc func(hint string) // called once when the box waits for the second factor
   func (c *Client) ImportPhonebook(ctx context.Context, id int, xml []byte, onConfirm ConfirmFunc) error
   var ErrConfirmationTimeout // "confirmation on the FRITZ!Box was not given in time"
   type ImportError struct { Status int; Message string } // box answer, anonymization not needed (no secrets)
   ```
 
-Behavior (to be made concrete in Task 8 Step 5): listing preferred via TR-064, export loop as fallback when TR-064 is disabled; import success/failure and 2FA detection exactly as recorded; the context deadline is the confirmation timeout.
+Behavior (from "Probe findings"; Ruling R8: the interface change `ExportPhonebook(ctx, id, name)` follows from finding F3, Task 10 passes `pb.ID, pb.Name` from `FindPhonebook`):
+- Listing only via TR-064 (`GetPhonebookList` + `GetPhonebook` per ID → `Phonebook{ID, Name}`); there is no export-loop fallback because the export needs the real name (F3). If TR-064 is unreachable or answers 401/403, the error says to enable "Allow access for applications" and to give the user the right permissions.
+- Export (backup and verification): multipart `POST /cgi-bin/firmwarecfg` with fields in this order `sid`, `PhonebookId`, `PhonebookExportName`, `PhonebookExport` (empty); answer 200, `Content-Type: application/octet-stream`, body is plain phonebook XML containing only the user's contacts; a 302 to `/index.lua` (login page) means the session or the request was rejected → error. Never use `phonebook.lua` for backup or counts (F4).
+- Import: multipart `POST /cgi-bin/firmwarecfg` as in Task 7; success is never decided from the (localized HTML) answer: status 200 means "accepted", a 302 or non-200 is an `*ImportError`, and Task 10 verifies by exporting again (count must match). The box replaces the target phonebook completely (F5).
+- 2FA is unobserved (F6): the author's box did not ask. Design assumption until a recording exists: the import POST stays pending until the user confirms, so the context deadline is the confirmation timeout; `onConfirm` is called once if the POST has not returned after 3 s; the fake gets a delayed-answer mode to test it. If a real box answers differently, a probe round on that box decides.
+- Fixtures in tests are built from the findings (no real bytes under `testdata/probe/`).
 
-- [ ] **Step 1: Write failing tests** against the replaying fake: `TestListPhonebooks`, `TestListPhonebooks_FallbackWithoutTR064`, `TestFindPhonebook_NotFound`, `TestFindPhonebook_Ambiguous`, `TestExportPhonebook`, `TestImport_Success`, `TestImport_WithConfirmation` (onConfirm called exactly once, then success), `TestImport_ConfirmationTimeout` (short ctx → `ErrConfirmationTimeout`), `TestImport_Rejected` (→ `*ImportError`).
+- [ ] **Step 1: Write failing tests** against the extended fake: `TestListPhonebooks`, `TestListPhonebooks_TR064Disabled` (error names the setting), `TestFindPhonebook_NotFound`, `TestFindPhonebook_Ambiguous`, `TestExportPhonebook`, `TestImport_Success`, `TestImport_WithConfirmation` (onConfirm called exactly once, then success), `TestImport_ConfirmationTimeout` (short ctx → `ErrConfirmationTimeout`), `TestImport_Rejected` (→ `*ImportError`).
 - [ ] **Step 2:** FAIL. **Step 3:** Implement. **Step 4:** PASS + lint.
 - [ ] **Step 5: Commit** — `feat(fritz): list, export and import phonebooks with 2FA`
 
@@ -313,7 +318,7 @@ Behavior (to be made concrete in Task 8 Step 5): listing preferred via TR-064, e
 - Modify: `internal/cli/cli.go`
 
 **Interfaces:**
-- Consumes: `contacts.ParseFiles`, `fbxml.Write/Inspect`, `fritz.New/Login/FindPhonebook/ExportPhonebook/ImportPhonebook/Logout`, `trace.Recorder`, `cli.Env`
+- Consumes: `contacts.ParseFiles`, `fbxml.Write/Inspect`, `fritz.New/Login/FindPhonebook/ExportPhonebook/ImportPhonebook/Logout`, `trace.Recorder`, `cli.Env`. Note (Probe findings F3): `ExportPhonebook(ctx, pb.ID, pb.Name)` takes the real name from `FindPhonebook`; the "before" and "after" exports use it, and the verification count comes from the export (never from `phonebook.lua`).
 
 Flags: `--phonebook` (required), `--host` (default `http://fritz.box`), `--user` (else `FRITZBOX_USER`, else usage error), `--yes`, `--backup-dir` (default `.`), `--timeout` (default `5m`), `--insecure` (skip TLS verification), `--verbose` (anonymized trace to stderr at exit, also on failure). Password: `FRITZBOX_PASSWORD`, else `Env.ReadPassword` with prompt `Password for <user>: ` on stderr, else error "no terminal: set FRITZBOX_PASSWORD".
 
@@ -350,4 +355,13 @@ Flow (spec "Upload flow"): convert (zero contacts → error before contacting th
 
 ## Probe findings
 
-*(filled in at Task 8, Step 4)*
+Three probe rounds on 2026-11-21 against one box: FRITZ!Box 6690 Cable, FRITZ!OS 267.08.25, user with rights Dial/App/HomeAuto/BoxAdmin/Phone (all access level 2), phonebooks `0` (the user's real book, 365 contacts) and `1` (`Test`). Recordings are local only (owner's decision); everything the next tasks need is here.
+
+- **F1 Login:** `login_sid.lua?version=2` with PBKDF2 works as implemented in Task 6. Rights are listed in the SessionInfo after login.
+- **F2 TR-064:** works over plain HTTP on port 49000 with Digest authentication (realm `HTTPS Access`, MD5, `qop=auth`; every call first gets a 401 with a fresh nonce). `X_AVM-DE_OnTel#GetPhonebookList` → `<NewPhonebookList>0,1</NewPhonebookList>`; `GetPhonebook(id)` → `NewPhonebookName`, `NewPhonebookExtraID`, `NewPhonebookURL` (`http://<box>:49000/phonebook.lua?sid=<sid>&pbid=<id>`). `DeviceInfo#GetInfo` returns model, firmware and also the full event log (`NewDeviceLog`), which the anonymizer redacts.
+- **F3 Export (`firmwarecfg`):** works only as `multipart/form-data` with fields `sid`, `PhonebookId`, `PhonebookExportName` (must be the phonebook's real name), `PhonebookExport` (empty). The same request as `application/x-www-form-urlencoded` is answered with `302 → /index.lua` (login page), even with the real name. Success answer: `200`, `Content-Type: application/octet-stream`, `Content-Disposition: attachment; filename="<...>_<phonebook name>_<hostname>_<model>_<firmware>_<date>.xml"`, body `<?xml version="1.0" encoding="utf-8"?><phonebooks><phonebook name="Test" owner="1"><contact>…</contact>…</phonebook></phonebooks>`; contacts carry the box-assigned `<uniqueid>`, `<telephony nid="1">` and `<setup />`. It contains only the user's contacts.
+- **F4 `phonebook.lua` is not a faithful export:** `GET <NewPhonebookURL>` works read-only (200, `text/xml`, `Content-Disposition: attachment; filename=pbook.xml`, `<!-- number of contacts N -->`), but for the author's `Test` it also returned ten virtual entries (internal numbers such as `**9`, `**600`, handset names) on top of the three real contacts (13 instead of 3). Use it, if at all, only for diagnostics, never for backup, counts or verification.
+- **F5 Import (`firmwarecfg`):** multipart fields in this order: `sid`, `PhonebookId`, `PhonebookImportFile` (filename `fritzbook.xml`, `text/xml`). Answer after about 1 s: `200 text/html` with the localized page "FRITZ!Box Telefonbuch wiederhergestellt" and a form to `/index.lua` (no contact count, no machine-readable status). The import **replaces** the target phonebook completely (the previous probe contacts were gone, the new ones present, the other phonebook unchanged at 365). Success must be verified by exporting again (F3) and comparing the count, as the spec says.
+- **F6 Second factor:** the box did **not** ask for any confirmation (answers `n`/`n`), the import was synchronous. How a box with the second factor enabled behaves (long-pending request, polling page, other endpoint) is unobserved; Task 9 builds on an explicit assumption (see there) and a probe round on such a box would settle it.
+- **F7 Rights:** the user above (Dial, App, HomeAuto, BoxAdmin, Phone) was sufficient for TR-064 and import; the exact minimal subset was not narrowed down.
+- **F8 Probe quirks worth keeping in mind:** other phonebooks must never be read beyond counts, `Test` contents are recorded verbatim, the probe aborts before any write unless exactly one TR-064 name equals `Test`.
