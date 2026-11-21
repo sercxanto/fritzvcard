@@ -161,3 +161,20 @@ func TestProbe_FindsTestViaTR064WhenExportListingFails(t *testing.T) {
 		t.Errorf("phonebook.lua requests = %d, want 1", n)
 	}
 }
+
+func TestProbe_KeepsImportAnswerButRedactsIt(t *testing.T) {
+	b := box(privat, testPB)
+	b.ImportAnswer = `<html><head><title>Confirm</title></head><body>Please confirm on your phone.<script>var d={"activeUsers":[{"value":"Maria Example","text":"Maria Example","UID":"boxuser1"}],"challenge":"2$10000$AABBCC$2000$DDEEFF"}; var u="/x?sid=fedcba9876543210";</script></body></html>`
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if r.code != 0 {
+		t.Fatalf("exit %d, stderr %q", r.code, r.err)
+	}
+	if !strings.Contains(r.trace, "Please confirm on your phone.") {
+		t.Error("import answer not recorded")
+	}
+	for _, leak := range []string{"Maria Example", "boxuser", "AABBCC", "fedcba9876543210"} {
+		if strings.Contains(r.trace, leak) {
+			t.Errorf("trace contains %q", leak)
+		}
+	}
+}

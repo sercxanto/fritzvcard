@@ -2,6 +2,7 @@ package trace
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -322,3 +323,29 @@ func TestRecorder_OmitsHTMLBodies(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRecorder_KeepsHTMLBodyWhenOptedIn(t *testing.T) {
+	page := "<html><head><title>Wait</title></head><body>Please confirm on your phone. " + strings.Repeat("x", 70000) + "</body></html>"
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: http.Header{"Content-Type": {"text/html"}},
+			Body: io.NopCloser(strings.NewReader(page))}, nil
+	})
+	rec := NewRecorder(rt, NewAnonymizer("Test"))
+	for _, ctx := range []context.Context{context.Background(), KeepBody(context.Background())} {
+		req, _ := http.NewRequestWithContext(ctx, "POST", "http://box.example/x", nil)
+		if _, err := rec.RoundTrip(req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var sb strings.Builder
+	if _, err := rec.WriteTo(&sb); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	if strings.Count(out, "Please confirm on your phone") != 1 {
+		t.Errorf("want the text exactly once (opted-in request only)")
+	}
+	if !strings.Contains(out, "[HTML body omitted:") || !strings.Contains(out, "[truncated: 65536 of") {
+		t.Errorf("missing omission or truncation marker")
+	}
+}

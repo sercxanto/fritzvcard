@@ -193,6 +193,10 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 			b.Phonebooks[i].XML = vals["PhonebookImportFile"]
 			b.imports = append(b.imports, id)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if b.ImportAnswer != "" {
+				io.WriteString(w, b.ImportAnswer)
+				return
+			}
 			io.WriteString(w, "<html><body>Import successful</body></html>")
 			return
 		}

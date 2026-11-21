@@ -300,7 +300,7 @@ func (p *probe) steps() error {
 	defer cancel()
 	start := time.Now()
 	go func() {
-		st, b, err := p.c.ImportPhonebookRaw(ictx, id, xmlBuf.Bytes())
+		st, b, err := p.c.ImportPhonebookRaw(trace.KeepBody(ictx), id, xmlBuf.Bytes())
 		done <- result{st, b, err}
 	}()
 	p.say("If your phone or the FRITZ!Box asks for a confirmation now, confirm it.")
@@ -368,7 +368,7 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(trace.KeepBody(ctx), http.MethodGet, u, nil)
 	if err != nil {
 		p.rec.Note("phonebook URL fetch: cannot build request")
 		return

@@ -2,6 +2,7 @@ package trace
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,9 +80,15 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e.status = resp.Status
 	e.resHeader = resp.Header.Clone()
 	e.resBody = b
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "text/html") {
-		// HTML pages (login page, error pages) can embed user names and other free text.
-		e.resBody = []byte(htmlPlaceholder(b))
+	if isHTML(resp) {
+		if req.Context().Value(keepBodyKey{}) != nil {
+			if len(b) > maxKeptHTML {
+				e.resBody = append(append([]byte(nil), b[:maxKeptHTML]...), fmt.Sprintf("\n[truncated: %d of %d bytes kept]", maxKeptHTML, len(b))...)
+			}
+		} else {
+			// HTML pages (login page, error pages) can embed user names and other free text.
+			e.resBody = []byte(htmlPlaceholder(b))
+		}
 	}
 	r.add(e)
 	if rerr != nil {
@@ -153,6 +160,21 @@ func (r *Recorder) WriteTo(w io.Writer) (int64, error) {
 	}
 	n, err := io.WriteString(w, out)
 	return int64(n), err
+}
+
+const maxKeptHTML = 64 << 10
+
+type keepBodyKey struct{}
+
+// KeepBody marks requests made with the returned context so that an HTML response body is
+// recorded (capped at 64 KB) instead of being reduced to its title and length. The full
+// anonymizer rules still apply when the trace is written.
+func KeepBody(ctx context.Context) context.Context {
+	return context.WithValue(ctx, keepBodyKey{}, true)
+}
+
+func isHTML(resp *http.Response) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "text/html")
 }
 
 var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)

@@ -36,6 +36,7 @@ type Box struct {
 	OldFirmware    bool   // serve a pre-7.24 challenge
 	Model          string // DeviceInfo model; default "FRITZ!Box 7590"
 	Firmware       string // DeviceInfo FRITZ!OS version; default "7.57"
+	ImportAnswer   string // HTML answer to a successful import; default "Import successful"
 	ExportBroken   bool   // every firmwarecfg export is answered with the login redirect
 	ImportTarget   *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
 
