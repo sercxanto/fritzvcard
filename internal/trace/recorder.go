@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"fritzbook/internal/fbxml"
 	"io"
 	"net/http"
 	"regexp"
@@ -37,6 +38,8 @@ type entry struct {
 	resBody    []byte
 	durationMS int64
 	err        string
+	omit       bool // omitted body: only Content-Type and Content-Length response headers are kept
+	expect     *expectSpec
 	truncate   bool // cap the anonymized response body at maxKeptHTML
 }
 
@@ -60,6 +63,8 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e := entry{method: req.Method, url: req.URL.String(), reqHeader: req.Header.Clone()}
 	omit := req.Context().Value(omitBodyKey{}) != nil
 	keep := req.Context().Value(keepBodyKey{}) != nil
+	e.expect, _ = req.Context().Value(expectKey{}).(*expectSpec)
+	e.omit = omit
 	first := req.Response == nil // redirect targets are never kept in full
 	reqLen := 0
 	if req.Body != nil {
@@ -153,9 +158,26 @@ func (r *Recorder) WriteTo(w io.Writer) (int64, error) {
 			continue
 		}
 		fmt.Fprintf(&sb, "--- %s (%d ms)\n", e.status, e.durationMS)
-		r.writeHeaders(&sb, e.resHeader)
-		if len(e.resBody) > 0 {
-			body := r.anon.Apply(string(e.resBody))
+		resHeader := e.resHeader
+		if e.omit {
+			// Other headers (Content-Disposition with a file name, ...) can carry private names.
+			resHeader = http.Header{}
+			for _, k := range []string{"Content-Type", "Content-Length"} {
+				if v := e.resHeader.Values(k); len(v) > 0 {
+					resHeader[k] = v
+				}
+			}
+		}
+		r.writeHeaders(&sb, resHeader)
+		resBody := e.resBody
+		if e.expect != nil && !e.omit {
+			if why := e.expect.violation(resBody); why != "" {
+				fmt.Fprintf(&sb, "# WARNING: response of step %d is not the expected phonebook %q (%s); body omitted\n", e.step, e.expect.name, why)
+				resBody = []byte(fmt.Sprintf("[response body omitted: %d bytes, %s]", len(e.resBody), why))
+			}
+		}
+		if len(resBody) > 0 {
+			body := r.anon.Apply(string(resBody))
 			if e.truncate && len(body) > maxKeptHTML {
 				body = body[:maxKeptHTML] + fmt.Sprintf("\n[truncated: %d of %d bytes kept]", maxKeptHTML, len(body))
 			}
@@ -214,4 +236,36 @@ func htmlPlaceholder(b []byte) string {
 		title = strings.Join(strings.Fields(string(m[1])), " ")
 	}
 	return fmt.Sprintf("[HTML body omitted: %d bytes, title: %s]", len(b), title)
+}
+
+type expectKey struct{}
+
+type expectSpec struct {
+	name   string
+	strict bool
+}
+
+// ExpectPhonebook marks requests whose response should be the phonebook called name. If the
+// response parses as a phonebook with another name its body is omitted at WriteTo and a
+// warning is written (the box may ignore the requested phonebook ID). With strict, a response
+// that is not a phonebook at all is omitted too.
+func ExpectPhonebook(ctx context.Context, name string, strict bool) context.Context {
+	return context.WithValue(ctx, expectKey{}, &expectSpec{name, strict})
+}
+
+func (x *expectSpec) violation(body []byte) string {
+	if !bytes.Contains(body, []byte("<phonebook")) && !bytes.Contains(body, []byte("<?xml")) {
+		if x.strict && len(body) > 0 {
+			return "not a phonebook"
+		}
+		return ""
+	}
+	info, err := fbxml.Inspect(bytes.NewReader(body))
+	switch {
+	case err != nil && (x.strict || bytes.Contains(body, []byte("<phonebook"))):
+		return "not a phonebook"
+	case err == nil && info.Name != x.name:
+		return "other phonebook"
+	}
+	return ""
 }

@@ -159,7 +159,7 @@ func TestProbe_FindsTestViaTR064WhenExportListingFails(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	if !strings.Contains(r.trace, "HTML body omitted") {
+	if !strings.Contains(r.trace, "body omitted") {
 		t.Error("login page not replaced by a placeholder")
 	}
 	// the TR-064 URL is fetched for Test only
@@ -255,5 +255,61 @@ func TestProbe_AbortsWhenGetPhonebookFails(t *testing.T) {
 		if got := b.Imports(); len(got) != 0 {
 			t.Errorf("bad=%d: imports = %v", bad, got)
 		}
+	}
+}
+
+func TestProbe_OmittedExportHeadersAndNames(t *testing.T) {
+	pb := fritzfake.Phonebook{ID: 0, Name: "Privat Büro", XML: []byte(privatXML)}
+	r := runProbe(t, box(pb, testPB), "yes\ny\ny\n")
+	if r.code != 0 {
+		t.Fatalf("exit %d, stderr %q", r.code, r.err)
+	}
+	for _, leak := range []string{"Privat", "Büro", "B\u00fcro", "Content-Disposition: attachment; filename=\"Privat"} {
+		if strings.Contains(r.trace, leak) {
+			t.Errorf("trace contains %q", leak)
+		}
+	}
+	if !strings.Contains(r.trace, "Test.xml") {
+		t.Error("Test book export headers should be kept")
+	}
+}
+
+func TestProbe_BooksNamedLikeKeywords(t *testing.T) {
+	user := fritzfake.Phonebook{ID: 0, Name: "User", XML: []byte(privatXML)}
+	step := fritzfake.Phonebook{ID: 2, Name: "Step", XML: []byte(privatXML)}
+	r := runProbe(t, box(user, testPB, step), "yes\ny\ny\n")
+	if r.code != 0 {
+		t.Fatalf("exit %d, stderr %q", r.code, r.err)
+	}
+	if r.trace == "" || strings.Contains(r.trace, "otheruser-xyz") || strings.Contains(r.trace, "Secret Person") {
+		t.Errorf("trace missing or leaking:\n%s", r.trace)
+	}
+}
+
+func TestProbe_GuardReplacesNamesInKeptBodies(t *testing.T) {
+	hidden := fritzfake.Phonebook{ID: 0, Name: "Hidden Book", XML: []byte(privatXML)}
+	b := box(hidden, testPB)
+	b.ImportAnswer = "<html><body>Imported into Hidden Book, thanks</body></html>"
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if r.code != 0 || !strings.Contains(r.trace, "thanks") {
+		t.Fatalf("exit %d, trace lacks the import answer", r.code)
+	}
+	if strings.Contains(r.trace, "Hidden") {
+		t.Error("trace contains the other book's name")
+	}
+}
+
+func TestProbe_BoxIgnoringIDNeverRecordsOtherBook(t *testing.T) {
+	zero := 0
+	b := box(privat, testPB)
+	b.ServeOtherID = &zero // every export and phonebook.lua serves Privat
+	r := runProbe(t, b, "yes\ny\ny\n")
+	for _, leak := range []string{"Secret Person", "5551234"} {
+		if strings.Contains(r.trace, leak) {
+			t.Errorf("trace contains %q", leak)
+		}
+	}
+	if !strings.Contains(r.trace, "WARNING: response of step") {
+		t.Error("no warning in the trace")
 	}
 }

@@ -40,6 +40,7 @@ type Box struct {
 	PhonebookHost  string // host name put into NewPhonebookURL instead of the request host
 	BrokenBookID   *int   // GetPhonebook for this ID answers with a fault
 	ImportRedirect bool   // imports are answered with a redirect to the login page
+	ServeOtherID   *int   // exports and phonebook.lua serve this ID's XML whatever was asked (box ignoring the ID)
 	ExportBroken   bool   // every firmwarecfg export is answered with the login redirect
 	ImportTarget   *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
 
@@ -133,6 +134,6 @@ func (b *Box) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func writeSession(w http.ResponseWriter, sid, challenge string, block int) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?><SessionInfo><SID>%s</SID><Challenge>%s</Challenge><BlockTime>%s</BlockTime></SessionInfo>`,
+	fmt.Fprintf(w, `<?xml version="1.0" encoding="utf-8"?><SessionInfo><SID>%s</SID><Challenge>%s</Challenge><BlockTime>%s</BlockTime><Users><User last="1">alice</User><User>otheruser-xyz</User></Users></SessionInfo>`,
 		sid, challenge, strconv.Itoa(block))
 }

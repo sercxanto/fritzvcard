@@ -150,8 +150,12 @@ func (b *Box) handleFirmwareCfg(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/index.lua", http.StatusFound)
 		return
 	}
+	if b.ServeOtherID != nil {
+		id = *b.ServeOtherID
+	}
 	if x := b.PhonebookXML(id); x != nil {
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(b.phonebookName(id), " ", "_")+`.xml"`)
 		w.Write(x)
 		return
 	}
@@ -240,6 +244,9 @@ var data = {"activeUsers":[{"value":"Maria Example","text":"Maria Example","UID"
 // handlePhonebookURL serves the download URL that GetPhonebook returns.
 func (b *Box) handlePhonebookURL(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.Atoi(r.URL.Query().Get("pbid"))
+	if b.ServeOtherID != nil {
+		id = *b.ServeOtherID
+	}
 	x := b.PhonebookXML(id)
 	if r.URL.Query().Get("sid") != validSID || x == nil {
 		http.Error(w, "forbidden", http.StatusForbidden)

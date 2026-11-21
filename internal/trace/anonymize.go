@@ -18,6 +18,7 @@ type Anonymizer struct {
 
 	mu      sync.Mutex
 	secrets []secret
+	guards  []string // names of other phonebooks, a best-effort backstop applied after the rules
 	counts  map[string]map[string]int
 
 	// disableRules turns every rule off. Only tests use it, to prove that the
@@ -49,6 +50,33 @@ func (a *Anonymizer) AddSecret(value, kind string) {
 	}
 }
 
+// guardSkip lists words that appear in the trace's own structure or in rule placeholders.
+// A guard equal to one of them is not registered: replacing it would garble the trace.
+var guardSkip = map[string]bool{
+	"user": true, "users": true, "username": true, "name": true, "number": true, "email": true,
+	"phonebook": true, "phonebooks": true, "contact": true, "challenge": true, "step": true,
+	"date": true, "sid": true, "host": true, "serial": true, "udn": true, "url": true, "uid": true,
+	"ipv4": true, "ipv6": true, "mac": true, "redacted": true, "test": true, "error": true,
+	"status": true, "server": true, "content": true, "type": true, "length": true,
+	"response": true, "text": true, "value": true, "html": true, "xml": true, "note": true,
+}
+
+// AddGuard registers the name of a phonebook that must not appear in the trace. Unlike
+// AddSecret it is applied AFTER the structural rules (so a name like "ser" cannot break the
+// "<User>" rule) and is not part of the WriteTo leak check, so a name that also occurs in
+// ordinary trace text can never make WriteTo refuse. Names shorter than 3 characters and
+// structural words are ignored.
+func (a *Anonymizer) AddGuard(name string) {
+	if len(name) < 3 || guardSkip[strings.ToLower(name)] {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, v := range []string{name, url.QueryEscape(name), url.PathEscape(name), xmlEscape(name)} {
+		a.guards = append(a.guards, v)
+	}
+}
+
 var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
 
 func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
@@ -60,9 +88,9 @@ var (
 	reResponse   = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
 	reUser       = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
 	reExportName = regexp.MustCompile(`\bPhonebookExportName=([^&\s"'<]*)`)
-	reJSONKey    = regexp.MustCompile(`(?i)(?:"|&quot;)(?:activeUsers|users|username|user|name|UID|challenge)(?:"|&quot;)\s*:\s*`)
+	reJSONKey    = regexp.MustCompile(`(?i)(?:\\"|"|&quot;)(?:activeUsers|users|username|user|name|UID|challenge)(?:\\"|"|&quot;)\s*:\s*`)
 	reExportPH   = regexp.MustCompile(`^(?:%3C|<)PHONEBOOK-\d+(?:%3E|>)$`)
-	reDeviceLog  = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription)>`)
+	reDeviceLog  = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription|NewPhonebookExtraID)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription|NewPhonebookExtraID)>`)
 	reSerial     = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
 	reUDN        = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
 	reMPSID      = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
@@ -106,8 +134,10 @@ func (a *Anonymizer) Apply(s string) string {
 	}
 	a.mu.Lock()
 	secrets := append([]secret(nil), a.secrets...)
+	guards := append([]string(nil), a.guards...)
 	a.mu.Unlock()
 	sort.SliceStable(secrets, func(i, j int) bool { return len(secrets[i].value) > len(secrets[j].value) })
+	// Credential secrets (user, password, SID) run first, before the structural rules.
 	for _, sec := range secrets {
 		s = strings.ReplaceAll(s, sec.value, "<"+sec.kind+">")
 	}
@@ -163,6 +193,11 @@ func (a *Anonymizer) Apply(s string) string {
 	s = reMAC.ReplaceAllStringFunc(s, func(m string) string { return a.placeholder("MAC", strings.ToLower(strings.ReplaceAll(m, "-", ":"))) })
 	s = reIPv6.ReplaceAllStringFunc(s, func(m string) string { return a.placeholder("IPv6", strings.ToLower(m)) })
 	s = reIPv4.ReplaceAllStringFunc(s, func(m string) string { return a.placeholder("IPv4", m) })
+	// Phonebook-name guards run last, so they cannot break the rules above.
+	sort.SliceStable(guards, func(i, j int) bool { return len(guards[i]) > len(guards[j]) })
+	for _, g := range guards {
+		s = strings.ReplaceAll(s, g, "<PHONEBOOK-NAME>")
+	}
 	return s
 }
 
@@ -201,11 +236,14 @@ func (a *Anonymizer) Header(name, value string) string {
 	return a.Apply(value)
 }
 
-// quoteAt returns the length of a string-quote token at s[i:] ("\"" or "&quot;"), or 0.
+// quoteAt returns the length of a string-quote token at s[i:] (`"`, `&quot;` or the
+// double-encoded `\"`), or 0.
 func quoteAt(s string, i int) int {
 	switch {
 	case strings.HasPrefix(s[i:], "&quot;"):
 		return len("&quot;")
+	case strings.HasPrefix(s[i:], `\"`):
+		return 2
 	case s[i] == '"':
 		return 1
 	}
@@ -217,21 +255,21 @@ func quoteAt(s string, i int) int {
 func scanString(s string, i int) int {
 	q := s[i : i+quoteAt(s, i)]
 	for j := i + len(q); j < len(s); {
-		if s[j] == '\\' && j+1 < len(s) {
-			j += 2
-			continue
-		}
 		if strings.HasPrefix(s[j:], q) {
 			return j + len(q)
+		}
+		if s[j] == '\\' && j+1 < len(s) && q[0] != '\\' {
+			j += 2
+			continue
 		}
 		j++
 	}
 	return len(s)
 }
 
-// scanArray returns the index after the array that opens at s[i] == '[', ignoring brackets
-// inside strings. An unterminated array extends to the end.
-func scanArray(s string, i int) int {
+// scanBracket returns the index after the array or object that opens at s[i], ignoring
+// brackets inside strings. An unterminated value extends to the end.
+func scanBracket(s string, i int, open, close byte) int {
 	depth := 0
 	for j := i; j < len(s); {
 		if quoteAt(s, j) > 0 {
@@ -239,9 +277,9 @@ func scanArray(s string, i int) int {
 			continue
 		}
 		switch s[j] {
-		case '[':
+		case open:
 			depth++
-		case ']':
+		case close:
 			depth--
 			if depth == 0 {
 				return j + 1
@@ -252,9 +290,9 @@ func scanArray(s string, i int) int {
 	return len(s)
 }
 
-// redactJSON removes values of JSON keys that carry user names or login material, in plain
-// and HTML-escaped (&quot;) form: array values are replaced entirely, string values by a
-// placeholder.
+// redactJSON removes values of JSON keys that carry user names or login material, in plain,
+// HTML-escaped (&quot;) and double-encoded (\") form: array and object values are replaced
+// entirely, string values by a placeholder. It runs in linear time.
 func redactJSON(s string) string {
 	var out strings.Builder
 	pos := 0
@@ -265,8 +303,12 @@ func redactJSON(s string) string {
 		j := m[1]
 		switch {
 		case s[j] == '[':
-			end := scanArray(s, j)
+			end := scanBracket(s, j, '[', ']')
 			out.WriteString(s[pos:j] + `["<REDACTED>"]`)
+			pos = end
+		case s[j] == '{':
+			end := scanBracket(s, j, '{', '}')
+			out.WriteString(s[pos:j] + `{<REDACTED>}`)
 			pos = end
 		case quoteAt(s, j) > 0:
 			end := scanString(s, j)

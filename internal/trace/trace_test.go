@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestApply_Secrets(t *testing.T) {
@@ -436,7 +437,92 @@ func TestRecorder_TruncatesAfterAnonymization(t *testing.T) {
 	rec := NewRecorder(htmlRT(body, "text/html", false), a)
 	req, _ := http.NewRequestWithContext(KeepBody(context.Background()), "GET", "http://box.example/x", nil)
 	out := recordOne(t, rec, req) // would fail the leak check if a cut secret survived
-	if !strings.Contains(out, "[truncated:") || strings.Contains(out, "TOPSECRET") {
+	if !strings.Contains(out, "[truncated:") || strings.Contains(out, "TOPS") {
 		t.Errorf("unexpected output (len %d)", len(out))
+	}
+}
+
+func TestAddGuard_AfterRulesAndNoLeakCheck(t *testing.T) {
+	a := NewAnonymizer("Test")
+	a.AddGuard("ser")  // would break the <User> rule if applied first
+	a.AddGuard("Step") // structural word: ignored
+	got := a.Apply(`<User last="1">otheruser</User> in Hidden ser`)
+	if strings.Contains(got, "otheruser") {
+		t.Errorf("rule broken by guard: %s", got)
+	}
+	rec := NewRecorder(htmlRT("<phonebooks></phonebooks>", "text/xml", false), a)
+	req, _ := http.NewRequest("GET", "http://box.example/x", nil)
+	if out := recordOne(t, rec, req); !strings.Contains(out, "=== Step 1") {
+		t.Errorf("structure garbled: %s", out)
+	}
+}
+
+func TestAddGuard_ReplacesHeaderAndBody(t *testing.T) {
+	a := NewAnonymizer("Test")
+	a.AddGuard("Hidden Book")
+	for _, in := range []string{`attachment; filename="Hidden Book.xml"`, "<html>Hidden%20Book here</html>", "Hidden Book"} {
+		if got := a.Apply(in); strings.Contains(got, "Hidden") {
+			t.Errorf("Apply(%q) = %q", in, got)
+		}
+	}
+}
+
+func TestRecorder_OmitBodyKeepsOnlyTypeAndLength(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		h := http.Header{"Content-Type": {"text/xml"}, "Content-Length": {"2"}, "Content-Disposition": {`attachment; filename="Privat_Buero.xml"`}}
+		return &http.Response{StatusCode: 200, Status: "200 OK", Header: h, Body: io.NopCloser(strings.NewReader("<a/>"))}, nil
+	})
+	rec := NewRecorder(rt, NewAnonymizer("Test"))
+	req, _ := http.NewRequestWithContext(OmitBody(context.Background()), "GET", "http://box.example/x", nil)
+	out := recordOne(t, rec, req)
+	if strings.Contains(out, "Privat") || !strings.Contains(out, "Content-Type: text/xml") {
+		t.Errorf("trace = %s", out)
+	}
+}
+
+func TestRecorder_ExpectPhonebook(t *testing.T) {
+	other := `<?xml version="1.0"?><phonebooks><phonebook name="Other"><contact><person><realName>Zed Person</realName></person></contact></phonebook></phonebooks>`
+	rec := NewRecorder(htmlRT(other, "text/xml", false), NewAnonymizer("Test"))
+	req, _ := http.NewRequestWithContext(ExpectPhonebook(context.Background(), "Test", true), "GET", "http://box.example/x", nil)
+	out := recordOne(t, rec, req)
+	if strings.Contains(out, "Zed") || !strings.Contains(out, "WARNING: response of step 1") {
+		t.Errorf("trace = %s", out)
+	}
+	rec = NewRecorder(htmlRT("<phonebooks><phonebook name=\"Test\"></phonebook></phonebooks>", "text/xml", false), NewAnonymizer("Test"))
+	req, _ = http.NewRequestWithContext(ExpectPhonebook(context.Background(), "Test", true), "GET", "http://box.example/x", nil)
+	if out := recordOne(t, rec, req); strings.Contains(out, "WARNING") || !strings.Contains(out, `name="Test"`) {
+		t.Errorf("Test book wrongly flagged: %s", out)
+	}
+}
+
+func TestApply_RedactNewPhonebookExtraID(t *testing.T) {
+	a := NewAnonymizer("Test")
+	if got := a.Apply("<NewPhonebookExtraID>acct-123</NewPhonebookExtraID>"); strings.Contains(got, "acct") {
+		t.Errorf("got %s", got)
+	}
+}
+
+func TestApply_JSONObjectAndDoubleEncoded(t *testing.T) {
+	a := NewAnonymizer("Test")
+	for _, in := range []string{
+		`{"users":{"u1":"Obj Person","n":{"x":"}"}},"k":1}`,
+		`"{\"user\":\"Dbl Person\",\"k\":1}"`,
+	} {
+		if got := a.Apply(in); strings.Contains(got, "Person") {
+			t.Errorf("leaks: %s", got)
+		}
+	}
+	if got := a.Apply(`{"users":{"a":"}"},"k":1}`); !strings.HasSuffix(got, `,"k":1}`) {
+		t.Errorf("over-redacted: %s", got)
+	}
+}
+
+func TestApply_JSONLinearTime(t *testing.T) {
+	a := NewAnonymizer("Test")
+	in := strings.Repeat(`{"user":"x","users":[1,2`, 40000) // ~1 MB, unterminated
+	start := time.Now()
+	a.Apply(in)
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("Apply took %s", d)
 	}
 }

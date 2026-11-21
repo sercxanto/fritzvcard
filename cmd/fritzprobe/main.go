@@ -264,7 +264,7 @@ func (p *probe) steps() error {
 
 	p.step(6, "export Test (before)")
 	othersBefore := p.otherCounts(ctx, others)
-	_, body, err := p.c.ExportPhonebookRaw(ctx, id, testBook)
+	_, body, err := p.c.ExportPhonebookRaw(p.bodyCtx(ctx, testBook), id, testBook)
 	if err != nil {
 		return err
 	}
@@ -304,7 +304,7 @@ func (p *probe) steps() error {
 	defer cancel()
 	start := time.Now()
 	go func() {
-		st, b, err := p.c.ImportPhonebookRaw(trace.KeepBody(ictx), id, xmlBuf.Bytes())
+		st, b, err := p.c.ImportPhonebookRaw(trace.ExpectPhonebook(trace.KeepBody(ictx), testBook, false), id, xmlBuf.Bytes())
 		done <- result{st, b, err}
 	}()
 	p.say("If your phone or the FRITZ!Box asks for a confirmation now, confirm it.")
@@ -321,7 +321,7 @@ func (p *probe) steps() error {
 	p.rec.Note("Did you confirm it? %s", p.ask("Did you confirm it? (y/n)"))
 
 	p.step(10, "export Test (after)")
-	_, body, err = p.c.ExportPhonebookRaw(ctx, id, testBook)
+	_, body, err = p.c.ExportPhonebookRaw(p.bodyCtx(ctx, testBook), id, testBook)
 	if err != nil {
 		return err
 	}
@@ -372,7 +372,7 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(trace.KeepBody(ctx), http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(trace.ExpectPhonebook(trace.KeepBody(ctx), testBook, true), http.MethodGet, u, nil)
 	if err != nil {
 		p.rec.Note("phonebook URL fetch: cannot build request")
 		return
@@ -403,15 +403,15 @@ func (p *probe) fetchPhonebookURL(ctx context.Context, id int, u string) {
 // guardName registers the name of a phonebook other than Test as a secret, a backstop on top
 // of the body omission. Names shorter than 3 characters would damage ordinary text.
 func (p *probe) guardName(name string) {
-	if name != testBook && len(name) >= 3 {
-		p.anon.AddSecret(name, "PHONEBOOK-NAME")
+	if name != testBook {
+		p.anon.AddGuard(name)
 	}
 }
 
 // bodyCtx keeps response bodies only for the Test phonebook.
 func (p *probe) bodyCtx(ctx context.Context, name string) context.Context {
 	if name == testBook {
-		return ctx
+		return trace.ExpectPhonebook(ctx, testBook, true)
 	}
 	return trace.OmitBody(ctx)
 }
