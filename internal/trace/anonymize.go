@@ -5,6 +5,7 @@ package trace
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -39,8 +40,18 @@ func (a *Anonymizer) AddSecret(value, kind string) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.secrets = append(a.secrets, secret{value, kind})
+	seen := map[string]bool{}
+	for _, v := range []string{value, url.QueryEscape(value), url.PathEscape(value), xmlEscape(value)} {
+		if !seen[v] {
+			seen[v] = true
+			a.secrets = append(a.secrets, secret{v, kind})
+		}
+	}
 }
+
+var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
+
+func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
 
 var (
 	reSIDParam   = regexp.MustCompile(`(?i)\bsid=[0-9A-Za-z]+`)
@@ -48,7 +59,10 @@ var (
 	reChallenge  = regexp.MustCompile(`<Challenge>[^<]*</Challenge>`)
 	reResponse   = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
 	reUser       = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
-	reSerial     = regexp.MustCompile(`<(NewSerialNumber|Serial)>[^<]*</(NewSerialNumber|Serial)>`)
+	reSerial     = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
+	reUDN        = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
+	reMPSID      = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
+	rePBURL      = regexp.MustCompile(`(<NewPhonebookURL>\s*[A-Za-z][A-Za-z0-9+.-]*://(?:[^@/<]*@)?)([^:/?#<\s]+)`)
 	rePhonebook  = regexp.MustCompile(`(?s)<phonebook\b([^>]*)>(.*?)</phonebook>`)
 	reNameAttr   = regexp.MustCompile(`\bname="([^"]*)"`)
 	rePBField    = regexp.MustCompile(`<(realName|number|email|imageURL)(\s[^>]*)?>([^<]+)</(realName|number|email|imageURL)>`)
@@ -102,6 +116,7 @@ func (a *Anonymizer) Apply(s string) string {
 		}
 		return "<SID><SID></SID>"
 	})
+	s = reMPSID.ReplaceAllString(s, "${1}<SID>")
 	s = reChallenge.ReplaceAllString(s, "<Challenge><CHALLENGE></Challenge>")
 	s = reResponse.ReplaceAllString(s, "response=<RESPONSE>")
 	s = reUser.ReplaceAllStringFunc(s, func(m string) string {
@@ -112,6 +127,17 @@ func (a *Anonymizer) Apply(s string) string {
 		return p[1] + a.placeholder("USER", p[2]) + p[3]
 	})
 	s = reSerial.ReplaceAllString(s, "<$1><SERIAL></$2>")
+	s = reUDN.ReplaceAllStringFunc(s, func(m string) string {
+		p := reUDN.FindStringSubmatch(m)
+		return p[1] + a.placeholder("UDN", p[2]) + p[3]
+	})
+	s = rePBURL.ReplaceAllStringFunc(s, func(m string) string {
+		p := rePBURL.FindStringSubmatch(m)
+		if reIPv4.MatchString(p[2]) && reIPv4.FindString(p[2]) == p[2] {
+			return m // IPv4 hosts are handled by the IPv4 rule
+		}
+		return p[1] + a.placeholder("HOST", strings.ToLower(p[2]))
+	})
 	s = rePhonebook.ReplaceAllStringFunc(s, a.phonebook)
 	s = reTRPBName.ReplaceAllStringFunc(s, func(m string) string {
 		p := reTRPBName.FindStringSubmatch(m)

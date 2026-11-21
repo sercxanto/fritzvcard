@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -173,5 +174,80 @@ func TestRecorder_SecretRegisteredLater(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "latesecret99") || !strings.Contains(buf.String(), "<SID>") {
 		t.Errorf("late secret not redacted:\n%s", buf.String())
+	}
+}
+
+func TestAddSecret_EncodedVariants(t *testing.T) {
+	const user = "a.b+c@example.test"
+	const pw = "p&w <x>'\"y z"
+	a := NewAnonymizer("")
+	a.AddSecret(user, "USER")
+	a.AddSecret(pw, "PASSWORD")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "<u>"+xmlEscape(user)+"</u><p>"+xmlEscape(pw)+"</p>")
+	}))
+	defer srv.Close()
+	rec := NewRecorder(http.DefaultTransport, a)
+	form := "username=" + url.QueryEscape(user) + "&password=" + url.QueryEscape(pw)
+	resp, err := (&http.Client{Transport: rec}).Post(srv.URL+"/p/"+url.PathEscape(user)+"?u="+url.QueryEscape(user), "application/x-www-form-urlencoded", strings.NewReader(form))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	var buf bytes.Buffer
+	if _, err := rec.WriteTo(&buf); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	out := buf.String()
+	for _, s := range []string{user, url.QueryEscape(user), url.PathEscape(user), xmlEscape(user), pw, url.QueryEscape(pw), xmlEscape(pw)} {
+		if strings.Contains(out, s) {
+			t.Errorf("leaks %q:\n%s", s, out)
+		}
+	}
+	// the leak check must see encoded variants too
+	b := NewAnonymizer("")
+	b.disableRules = true
+	b.AddSecret(user, "USER")
+	r2 := NewRecorder(http.DefaultTransport, b)
+	resp, err = (&http.Client{Transport: r2}).Post(srv.URL, "text/plain", strings.NewReader("username="+url.QueryEscape(user)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if _, err := r2.WriteTo(io.Discard); err == nil {
+		t.Error("leak check missed encoded variant")
+	}
+}
+
+func TestApply_MultipartSID(t *testing.T) {
+	a := NewAnonymizer("")
+	for _, nl := range []string{"\r\n", "\n"} {
+		in := "--bnd" + nl + `Content-Disposition: form-data; name="sid"` + nl + nl + "0a1b2c3d4e5f6a7b" + nl +
+			"--bnd" + nl + `Content-Disposition: form-data; name="PhonebookId"` + nl + nl + "0" + nl + "--bnd--"
+		out := a.Apply(in)
+		if strings.Contains(out, "0a1b2c3d4e5f6a7b") || !strings.Contains(out, nl+nl+"<SID>"+nl) {
+			t.Errorf("multipart sid not redacted (%q): %q", nl, out)
+		}
+		if !strings.Contains(out, nl+nl+"0"+nl) {
+			t.Errorf("other field damaged: %q", out)
+		}
+	}
+}
+
+func TestApply_DeviceDescriptionAndPhonebookURL(t *testing.T) {
+	a := NewAnonymizer("")
+	in := `<device><serialNumber>989BCB123456</serialNumber><UDN>uuid:12345678-0000-0000-0000-989BCB123456</UDN></device>` +
+		`<NewPhonebookURL>https://x1y2.myfritz.net:49443/phonebook.lua?pb=0&amp;sid=abcd1234</NewPhonebookURL>` +
+		`<NewPhonebookURL>http://192.168.1.1:49000/pb</NewPhonebookURL>`
+	out := a.Apply(in)
+	for _, s := range []string{"989BCB123456", "12345678-0000", "myfritz", "x1y2", "abcd1234", "192.168.1.1"} {
+		if strings.Contains(out, s) {
+			t.Errorf("leaks %q:\n%s", s, out)
+		}
+	}
+	for _, s := range []string{"<serialNumber><SERIAL></serialNumber>", "<UDN><UDN-1></UDN>", "https://<HOST-1>:49443/phonebook.lua", "http://<IPv4-1>:49000/pb", "sid=<SID>"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("missing %q:\n%s", s, out)
+		}
 	}
 }
