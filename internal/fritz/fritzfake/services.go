@@ -232,6 +232,14 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		}
+		if b.ImportDrop {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					conn.Close()
+				}
+			}
+			return
+		}
 	}
 	id, _ := strconv.Atoi(string(vals["PhonebookId"]))
 	if b.ImportTarget != nil {

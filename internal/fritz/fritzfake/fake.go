@@ -51,6 +51,7 @@ type Box struct {
 	TR064Status          int           // if set (401, 403), the TR-064 phonebook service always answers with this status (TR-064 disabled or user not allowed)
 	ImportStatus         int           // if set, imports are answered with this non-200 status and change nothing
 	ImportDelay          time.Duration // imports stay pending this long before they are applied (unobserved 2FA path, assumption F6)
+	ImportDrop           bool          // after the delay the connection is closed without an answer
 	HoldImport           chan struct{} // if set, imports stay pending until the channel is closed (or the client gives up)
 
 	mu        sync.Mutex

@@ -75,8 +75,8 @@ func TestFindPhonebook(t *testing.T) {
 		msg     string
 	}{
 		{name: "Test", want: fritz.Phonebook{ID: 1, Name: "Test"}},
-		{name: "test", wantErr: fritz.ErrPhonebookNotFound, msg: `phonebook "test" not found`},
-		{name: "Missing", wantErr: fritz.ErrPhonebookNotFound, msg: "create it in the FRITZ!Box web UI first"},
+		{name: "test", wantErr: fritz.ErrPhonebookNotFound, msg: `phonebook "test" not found — create it in the FRITZ!Box web UI first`},
+		{name: "Missing", wantErr: fritz.ErrPhonebookNotFound, msg: `phonebook "Missing" not found — create it in the FRITZ!Box web UI first`},
 		{name: "Dup", wantErr: fritz.ErrAmbiguousPhonebook, msg: `several phonebooks are named "Dup"`},
 	}
 	for _, tt := range tests {
@@ -85,8 +85,8 @@ func TestFindPhonebook(t *testing.T) {
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
-			if tt.wantErr != nil && !strings.Contains(err.Error(), tt.msg) {
-				t.Errorf("err %q lacks %q", err, tt.msg)
+			if tt.wantErr != nil && err.Error() != tt.msg {
+				t.Errorf("err %q, want exactly %q", err, tt.msg)
 			}
 			if got != tt.want {
 				t.Errorf("got %v, want %v", got, tt.want)
@@ -119,6 +119,7 @@ func TestExportPhonebook_Errors(t *testing.T) {
 		{"bounced to login page", 1, "Test", func(b *fritzfake.Box) { b.MultipartExportWorks = false }},
 		{"wrong name", 1, "Wrong", nil},
 		{"unknown id", 9, "Test", nil},
+		{"box ignores the ID and serves another book", 1, "Test", func(b *fritzfake.Box) { zero := 0; b.ServeOtherID = &zero }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,6 +137,21 @@ func TestExportPhonebook_Errors(t *testing.T) {
 				t.Errorf("error leaks SID: %v", err)
 			}
 		})
+	}
+}
+
+func TestExportPhonebook_WrongBook(t *testing.T) {
+	b := testBox()
+	b.MultipartExportWorks = true
+	zero := 0
+	b.ServeOtherID = &zero
+	c := newLoggedIn(t, b)
+	x, err := c.ExportPhonebook(context.Background(), 1, "Test")
+	if !errors.Is(err, fritz.ErrUnexpectedPhonebook) {
+		t.Fatalf("err = %v, body %q", err, x)
+	}
+	if !strings.Contains(err.Error(), `"Test"`) || !strings.Contains(err.Error(), `"Privat"`) {
+		t.Errorf("error does not name both books: %v", err)
 	}
 }
 
@@ -264,5 +280,36 @@ func TestImport_RequiresLogin(t *testing.T) {
 	c := newClient(t, testBox())
 	if err := c.ImportPhonebook(context.Background(), 1, []byte(importXML), nil); !errors.Is(err, fritz.ErrNotLoggedIn) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestListPhonebooks_OtherFailuresHaveNoHint(t *testing.T) {
+	b := testBox()
+	c := newLoggedIn(t, b)
+	b.TR064Status = http.StatusInternalServerError
+	_, err := c.ListPhonebooks(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "Allow access for applications") {
+		t.Errorf("hint on a 500: %v", err)
+	}
+}
+
+func TestImport_ConnectionDropIsNotTimeout(t *testing.T) {
+	b := testBox()
+	b.ImportDelay = 80 * time.Millisecond
+	b.ImportDrop = true
+	c := newLoggedIn(t, b)
+	c.ConfirmAfter = 20 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var calls atomic.Int32
+	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func(string) { calls.Add(1) })
+	if err == nil || errors.Is(err, fritz.ErrConfirmationTimeout) {
+		t.Fatalf("err = %v, want the plain connection error", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("onConfirm called %d times", calls.Load())
 	}
 }

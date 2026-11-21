@@ -20,6 +20,11 @@ const (
 	deviceService = "urn:dslforum-org:service:DeviceInfo:1"
 )
 
+// statusError carries the HTTP status of an unexpected TR-064 answer.
+type statusError struct{ Status int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("HTTP status %d", e.Status) }
+
 // ErrNotLoggedIn is returned by calls that need the login credentials.
 var ErrNotLoggedIn = errors.New("not logged in")
 
@@ -93,7 +98,7 @@ func (c *Client) TR064(ctx context.Context, controlURL, serviceType, action stri
 	case fault != "":
 		return nil, fmt.Errorf("tr064 %s: %s", action, fault)
 	case res.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("tr064 %s: unexpected status %s", action, res.Status)
+		return nil, fmt.Errorf("tr064 %s: unexpected status %s: %w", action, res.Status, &statusError{res.StatusCode})
 	case perr != nil:
 		return nil, fmt.Errorf("tr064 %s: decode response: %w", action, perr)
 	}
