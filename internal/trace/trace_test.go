@@ -251,3 +251,21 @@ func TestApply_DeviceDescriptionAndPhonebookURL(t *testing.T) {
 		}
 	}
 }
+
+func TestApply_DeviceInfoLogRedacted(t *testing.T) {
+	a := NewAnonymizer("Test")
+	in := `<NewModelName>FRITZ!Box 7590</NewModelName><NewSoftwareVersion>7.57</NewSoftwareVersion>` +
+		`<NewDescription>FRITZ!Box 7590 7.57 [x]</NewDescription><NewProvisioningCode>123.456.789.000</NewProvisioningCode>` +
+		`<NewDeviceLog>WLAN device Johns-iPhone, user jdoe, call +49 30 5559999, host jdoe.myfritz.net</NewDeviceLog>`
+	got := a.Apply(in)
+	for _, leak := range []string{"Johns-iPhone", "jdoe", "5559999", "123.456.789.000", "[x]"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("output leaks %q: %s", leak, got)
+		}
+	}
+	for _, keep := range []string{"FRITZ!Box 7590</NewModelName>", "<NewSoftwareVersion>7.57</NewSoftwareVersion>"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("output lost %q: %s", keep, got)
+		}
+	}
+}

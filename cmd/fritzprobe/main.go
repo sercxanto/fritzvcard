@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -202,6 +203,7 @@ func (p *probe) steps() error {
 
 	p.step(4, "fallback listing via firmwarecfg export")
 	var testIDs []int
+	otherIDs := map[int]bool{} // non-Test phonebooks: only IDs and counts are ever logged
 	for id := 0; id <= 9; id++ {
 		status, body, err := p.c.ExportPhonebookRaw(ctx, id, "")
 		if err != nil {
@@ -213,9 +215,12 @@ func (p *probe) steps() error {
 			p.rec.Note("ID %d: status %d, not a phonebook (%v); listing stops", id, status, err)
 			break
 		}
-		p.rec.Note("ID %d: phonebook %q with %d contacts", id, info.Name, info.Contacts)
 		if info.Name == testBook {
+			p.rec.Note("ID %d: phonebook %q with %d contacts", id, info.Name, info.Contacts)
 			testIDs = append(testIDs, id)
+		} else {
+			p.rec.Note("ID %d: other phonebook (name withheld) with %d contacts", id, info.Contacts)
+			otherIDs[id] = true
 		}
 	}
 
@@ -227,6 +232,7 @@ func (p *probe) steps() error {
 	p.rec.Note("Test phonebook has ID %d", id)
 
 	p.step(6, "export Test (before)")
+	othersBefore := p.otherCounts(ctx, otherIDs)
 	_, body, err := p.c.ExportPhonebookRaw(ctx, id, testBook)
 	if err != nil {
 		return err
@@ -291,5 +297,34 @@ func (p *probe) steps() error {
 	} else {
 		p.rec.Note("after: %d contacts", info.Contacts)
 	}
+	othersAfter := p.otherCounts(ctx, otherIDs)
+	var changed []int
+	for id, n := range othersBefore {
+		if othersAfter[id] != n {
+			changed = append(changed, id)
+		}
+	}
+	sort.Ints(changed)
+	if len(changed) > 0 {
+		p.rec.Note("WARNING: the contact count of non-Test phonebook IDs %v changed during the import; the box may ignore PhonebookId. Restore them from your backup.", changed)
+		p.say("WARNING: other phonebooks (IDs %v) changed. Restore them from your backup.", changed)
+	} else {
+		p.rec.Note("non-Test phonebook contact counts unchanged: %v", othersAfter)
+	}
 	return nil
+}
+
+// otherCounts exports each non-Test phonebook and returns its contact count (-1 if unreadable).
+// Names and contact data are never logged by the probe itself.
+func (p *probe) otherCounts(ctx context.Context, ids map[int]bool) map[int]int {
+	counts := map[int]int{}
+	for id := range ids {
+		counts[id] = -1
+		if _, body, err := p.c.ExportPhonebookRaw(ctx, id, ""); err == nil {
+			if info, err := fbxml.Inspect(bytes.NewReader(body)); err == nil {
+				counts[id] = info.Contacts
+			}
+		}
+	}
+	return counts
 }

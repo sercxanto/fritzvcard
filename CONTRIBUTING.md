@@ -60,7 +60,9 @@ anonymized recordings under `testdata/probe/`. Conversion is tested with sample 
 The probe (`cmd/fritzprobe`) records how a real box behaves, so the fake box and the upload
 code can be built from facts. A human runs it; agents never do (see AGENTS.md).
 
-1. Prepare the box: log in to the web interface, create exactly one phonebook named `Test`
+1. Prepare the box: export a backup of all phonebooks first (Telephony > Phonebook > Backup);
+   an import replaces the whole target phonebook and the probe cannot rule out that the box
+   ignores the requested phonebook ID. Then log in to the web interface, create exactly one phonebook named `Test`
    (Telephony > Phonebook), and use a user that may edit contacts. The probe writes three
    synthetic contacts (`Probe Contact 1-3`) into `Test` and nothing else; it refuses to write
    if there is no or more than one phonebook named `Test`.

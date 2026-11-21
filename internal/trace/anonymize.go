@@ -59,6 +59,7 @@ var (
 	reChallenge  = regexp.MustCompile(`<Challenge>[^<]*</Challenge>`)
 	reResponse   = regexp.MustCompile(`\bresponse=[^&\s"'<]+`)
 	reUser       = regexp.MustCompile(`(<User(?:\s[^>]*)?>)([^<]+)(</User>)`)
+	reDeviceLog  = regexp.MustCompile(`<(NewDeviceLog|NewProvisioningCode|NewDescription)>[^<]*</(NewDeviceLog|NewProvisioningCode|NewDescription)>`)
 	reSerial     = regexp.MustCompile(`<(NewSerialNumber|Serial|serialNumber)>[^<]*</(NewSerialNumber|Serial|serialNumber)>`)
 	reUDN        = regexp.MustCompile(`(<UDN>)([^<]+)(</UDN>)`)
 	reMPSID      = regexp.MustCompile(`(?i)(name="sid"[^\r\n]*\r?\n(?:[A-Za-z-]+:[^\r\n]*\r?\n)*\r?\n)[^\r\n]+`)
@@ -126,6 +127,7 @@ func (a *Anonymizer) Apply(s string) string {
 		}
 		return p[1] + a.placeholder("USER", p[2]) + p[3]
 	})
+	s = reDeviceLog.ReplaceAllString(s, "<$1><REDACTED></$2>")
 	s = reSerial.ReplaceAllString(s, "<$1><SERIAL></$2>")
 	s = reUDN.ReplaceAllStringFunc(s, func(m string) string {
 		p := reUDN.FindStringSubmatch(m)

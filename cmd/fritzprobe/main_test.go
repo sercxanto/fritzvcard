@@ -80,12 +80,12 @@ func TestProbe_WritesOnlyToTest(t *testing.T) {
 	if got := b.Imports(); len(got) != 1 || got[0] != 1 {
 		t.Fatalf("imports = %v, want [1]", got)
 	}
-	for _, leak := range []string{"Secret Person", "5551234", "s3cret", "0123456789abcdef"} {
+	for _, leak := range []string{"Secret Person", "Privat", "5551234", "s3cret", "0123456789abcdef", "Johns-iPhone", "jdoe", "5559999"} {
 		if strings.Contains(r.trace, leak) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=", "after: 3 contacts"} {
+	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebook (name withheld) with 1 contacts", "unchanged", "after: 3 contacts"} {
 		if !strings.Contains(r.trace, want) {
 			t.Errorf("trace lacks %q", want)
 		}
@@ -113,5 +113,21 @@ func TestProbe_AbortsWithoutYes(t *testing.T) {
 		if !b.WasLoggedOut() {
 			t.Errorf("stdin %q: session not closed", in)
 		}
+	}
+}
+
+func TestProbe_WarnsWhenOtherPhonebookChanges(t *testing.T) {
+	zero := 0
+	b := box(privat, testPB)
+	b.ImportTarget = &zero // the fake box ignores PhonebookId and writes to Privat
+	r := runProbe(t, b, "yes\ny\ny\n")
+	if !strings.Contains(r.trace, "WARNING: the contact count of non-Test phonebook IDs [0] changed") {
+		t.Errorf("trace lacks the warning:\n%s", r.trace)
+	}
+	if !strings.Contains(r.stdout, "WARNING") {
+		t.Errorf("stdout lacks the warning: %q", r.stdout)
+	}
+	if strings.Contains(r.trace, "Secret Person") {
+		t.Error("trace leaks private contact")
 	}
 }

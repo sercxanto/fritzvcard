@@ -67,7 +67,9 @@ func (b *Box) handleTR064(w http.ResponseWriter, r *http.Request) {
 		if fw == "" {
 			fw = "7.57"
 		}
-		out = "<NewModelName>" + model + "</NewModelName><NewSoftwareVersion>" + fw + "</NewSoftwareVersion>"
+		out = "<NewModelName>" + model + "</NewModelName><NewSoftwareVersion>" + fw + "</NewSoftwareVersion>" +
+			"<NewDescription>FRITZ!Box synthetic description</NewDescription><NewProvisioningCode>000.000.000.000</NewProvisioningCode>" +
+			"<NewDeviceLog>01.01.26 10:00:00 WLAN device Johns-iPhone registered, user jdoe logged in, call to +49 30 5559999</NewDeviceLog>"
 	case r.URL.Path == "/upnp/control/x_contact" && action == "GetPhonebookList":
 		b.mu.Lock()
 		ids := make([]string, 0, len(b.Phonebooks))
@@ -175,6 +177,9 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := strconv.Atoi(string(vals["PhonebookId"]))
+	if b.ImportTarget != nil {
+		id = *b.ImportTarget
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for i := range b.Phonebooks {

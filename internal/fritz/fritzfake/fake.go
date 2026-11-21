@@ -36,6 +36,7 @@ type Box struct {
 	OldFirmware    bool   // serve a pre-7.24 challenge
 	Model          string // DeviceInfo model; default "FRITZ!Box 7590"
 	Firmware       string // DeviceInfo FRITZ!OS version; default "7.57"
+	ImportTarget   *int   // if set, imports land in this phonebook ID instead (simulates a box ignoring PhonebookId)
 
 	mu        sync.Mutex
 	requests  []string
