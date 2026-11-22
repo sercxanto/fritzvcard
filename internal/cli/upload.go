@@ -8,7 +8,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,11 @@ import (
 	"fritzbook/internal/fbxml"
 	"fritzbook/internal/fritz"
 	"fritzbook/internal/trace"
+)
+
+const (
+	setupTimeout  = 60 * time.Second // login, phonebook lookup and the backup export
+	verifyTimeout = 60 * time.Second // the verification export after an accepted import
 )
 
 // confirmAfter overrides Client.ConfirmAfter when non-zero; tests shorten it.
@@ -66,6 +73,10 @@ func runUpload(args []string, env Env) int {
 		u.anon = trace.NewAnonymizer("")
 		u.anon.AddSecret(*user, "USER")
 		u.anon.AddGuard(*pbName)
+		if pu, err := url.Parse(*host); err == nil && pu.Hostname() != "" && net.ParseIP(pu.Hostname()) == nil {
+			u.anon.AddSecret(pu.Hostname(), "HOST") // the anonymizer only masks IP addresses
+			u.anon.AddSecret(pu.Host, "HOST")
+		}
 		defer func() {
 			fmt.Fprintln(env.Stderr, "--- trace (anonymized) ---")
 			if _, err := rec.WriteTo(env.Stderr); err != nil {
@@ -73,7 +84,7 @@ func runUpload(args []string, env Env) int {
 			}
 		}()
 	}
-	u.httpClient, rec = buildHTTPClient(env.HTTPClient, *insecure, *timeout, u.anon)
+	u.httpClient, rec = buildHTTPClient(env.HTTPClient, *insecure, u.anon)
 	u.host = *host
 
 	err = u.run(files)
@@ -90,7 +101,7 @@ func runUpload(args []string, env Env) int {
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // buildHTTPClient returns the client to use; with a recorder its transport is wrapped.
-func buildHTTPClient(injected *http.Client, insecure bool, timeout time.Duration, anon *trace.Anonymizer) (*http.Client, *trace.Recorder) {
+func buildHTTPClient(injected *http.Client, insecure bool, anon *trace.Anonymizer) (*http.Client, *trace.Recorder) {
 	var hc http.Client
 	if injected != nil {
 		hc = *injected
@@ -99,7 +110,7 @@ func buildHTTPClient(injected *http.Client, insecure bool, timeout time.Duration
 		if insecure {
 			tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in via --insecure
 		}
-		hc = http.Client{Transport: tr, Timeout: timeout}
+		hc = http.Client{Transport: tr} // deadlines come from the contexts
 	}
 	var rec *trace.Recorder
 	if anon != nil {
@@ -123,13 +134,14 @@ type uploader struct {
 }
 
 func (u *uploader) run(files []string) (err error) {
-	cs, _, err := contacts.ParseFiles(files)
+	cs, skipped, err := contacts.ParseFiles(files)
 	if err != nil {
 		return err
 	}
 	if len(cs) == 0 {
 		return errors.New("no contacts found in the given files; nothing to upload")
 	}
+	printSummary(u.env.Stderr, cs, skipped)
 	var xmlBuf bytes.Buffer
 	if err := fbxml.Write(&xmlBuf, u.phonebook, cs); err != nil {
 		return err
@@ -152,7 +164,10 @@ func (u *uploader) run(files []string) (err error) {
 		u.anon.AddSecret(pw, "PASSWORD")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), u.timeout)
+	// Login, lookup and the export run under a fixed, generous budget; --timeout only bounds
+	// the import (including the wait for the box's confirmation) and starts after the prompt,
+	// so the time spent at the y/N prompt cannot eat it.
+	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
 	defer cancel()
 	c, err := fritz.New(u.host, u.httpClient)
 	if err != nil {
@@ -187,9 +202,8 @@ func (u *uploader) run(files []string) (err error) {
 	if err != nil {
 		return err
 	}
-	now := u.env.Now()
-	path := filepath.Join(u.backupDir, fmt.Sprintf("fritzbook-backup-%s-%s.xml", safeName(pb.Name), now.Format("20060102-150405")))
-	if err := os.WriteFile(path, before, 0o600); err != nil {
+	path, err := writeBackup(u.backupDir, pb.Name, u.env.Now(), before)
+	if err != nil {
 		return fmt.Errorf("write backup: %w", err)
 	}
 	u.backupPath = path
@@ -205,22 +219,58 @@ func (u *uploader) run(files []string) (err error) {
 	onConfirm := func(string) {
 		fmt.Fprintf(u.env.Stderr, "The FRITZ!Box asks for confirmation: enter the code on a phone or press a button on the box (waiting up to %s)…\n", u.timeout)
 	}
-	if err := c.ImportPhonebook(private, pb.ID, newXML, onConfirm); err != nil {
+	ictx, icancel := context.WithTimeout(private, u.timeout)
+	defer icancel()
+	if err := c.ImportPhonebook(ictx, pb.ID, newXML, onConfirm); err != nil {
 		return err
 	}
-	after, err := c.ExportPhonebook(private, pb.ID, pb.Name)
+	vctx, vcancel := context.WithTimeout(private, verifyTimeout)
+	defer vcancel()
+	after, err := c.ExportPhonebook(vctx, pb.ID, pb.Name)
 	if err != nil {
-		return fmt.Errorf("verification export: %w", err)
+		return fmt.Errorf("the import was accepted but could not be verified (export failed: %w)", err)
 	}
 	got, err := fbxml.Inspect(bytes.NewReader(after))
 	if err != nil {
-		return err
+		return fmt.Errorf("the import was accepted but could not be verified: %w", err)
 	}
 	if got.Contacts != m {
 		return fmt.Errorf("count mismatch: uploaded %d contacts but the phonebook now holds %d", m, got.Contacts)
 	}
 	fmt.Fprintf(u.env.Stdout, "Phonebook %q replaced: %d contacts.\n", pb.Name, m)
 	return nil
+}
+
+// writeBackup creates the backup exclusively with mode 0600 and syncs it. If the name is
+// taken (same second), -2, -3, ... is appended; it never overwrites an existing backup.
+func writeBackup(dir, phonebook string, now time.Time, data []byte) (string, error) {
+	base := fmt.Sprintf("fritzbook-backup-%s-%s", safeName(phonebook), now.Format("20060102-150405"))
+	for i := 1; i <= 99; i++ {
+		name := base + ".xml"
+		if i > 1 {
+			name = fmt.Sprintf("%s-%d.xml", base, i)
+		}
+		path := filepath.Join(dir, name)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if err == nil {
+			err = f.Sync()
+		}
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	return "", errors.New("too many backups with the same timestamp")
 }
 
 // safeName makes a phonebook name usable in a file name.

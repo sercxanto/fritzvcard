@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +28,40 @@ type upEnv struct {
 	stdin  string
 	env    map[string]string
 	pwFn   func() (string, error)
+	stdinR io.Reader                            // overrides stdin when set
+	files  []string                             // overrides the fixture when set
+	hook   func(n int, req *http.Request) error // called per firmwarecfg POST (n counts from 1)
+	fwN    int
+}
+
+type hookTransport struct {
+	next http.RoundTripper
+	u    *upEnv
+}
+
+func (h hookTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if h.u.hook != nil && req.Method == http.MethodPost && req.URL.Path == "/cgi-bin/firmwarecfg" {
+		h.u.fwN++
+		if err := h.u.hook(h.u.fwN, req); err != nil {
+			return nil, err
+		}
+	}
+	return h.next.RoundTrip(req)
+}
+
+type slowReader struct {
+	d time.Duration
+	s string
+}
+
+func (r *slowReader) Read(p []byte) (int, error) {
+	time.Sleep(r.d)
+	if r.s == "" {
+		return 0, io.EOF
+	}
+	n := copy(p, r.s)
+	r.s = r.s[n:]
+	return n, nil
 }
 
 func newUp(t *testing.T) *upEnv {
@@ -51,15 +87,25 @@ func dialTo(addr string) *http.Client {
 }
 
 func (u *upEnv) run(args ...string) int {
+	var in io.Reader = strings.NewReader(u.stdin)
+	if u.stdinR != nil {
+		in = u.stdinR
+	}
+	hc := dialTo(u.srv.Listener.Addr().String())
+	hc.Transport = hookTransport{hc.Transport, u}
 	e := Env{
-		Stdin: strings.NewReader(u.stdin), Stdout: &u.stdout, Stderr: &u.stderr,
+		Stdin: in, Stdout: &u.stdout, Stderr: &u.stderr,
 		Getenv:       func(k string) string { return u.env[k] },
 		ReadPassword: u.pwFn,
 		Now:          func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) },
-		HTTPClient:   dialTo(u.srv.Listener.Addr().String()),
+		HTTPClient:   hc,
+	}
+	files := []string{fixture}
+	if u.files != nil {
+		files = u.files
 	}
 	base := []string{"upload", "--phonebook", "Nextcloud", "--backup-dir", u.dir, "--timeout", "5s"}
-	return Run(append(base, append(args, fixture)...), e)
+	return Run(append(base, append(args, files...)...), e)
 }
 
 func (u *upEnv) backups(t *testing.T) []string {
@@ -99,6 +145,15 @@ func TestUpload_Success(t *testing.T) {
 	}
 	if n := has(u.box.Requests(), "POST /cgi-bin/firmwarecfg"); n != 3 {
 		t.Errorf("firmwarecfg requests = %d, want export+import+export", n)
+	}
+	var fw []string
+	for _, r := range u.box.Requests() {
+		if r == "POST /cgi-bin/firmwarecfg" {
+			fw = append(fw, r)
+		}
+	}
+	if len(fw) != 3 {
+		t.Errorf("firmwarecfg order %v", fw)
 	}
 	if !u.box.WasLoggedOut() {
 		t.Error("no logout")
@@ -208,6 +263,7 @@ func TestUpload_LoginErrors(t *testing.T) {
 func checkLoginFailure(t *testing.T, u *upEnv) {
 	t.Helper()
 	se := strings.TrimRight(u.stderr.String(), "\n")
+	se = se[strings.Index(se, "error: "):] // the conversion summary precedes it
 	if strings.Contains(se, "\n") || !strings.HasPrefix(se, "error: ") {
 		t.Errorf("stderr not a single error line: %q", se)
 	}
@@ -227,7 +283,7 @@ func TestUpload_FailureMentionsBackup(t *testing.T) {
 		want  string
 	}{
 		{"import rejected", func(u *upEnv) { u.box.ImportStatus = 500 }, nil, "rejected the import"},
-		{"confirmation timeout", func(u *upEnv) { u.box.HoldImport = make(chan struct{}) }, []string{"--timeout", "400ms"}, "was not given in time"},
+		{"confirmation timeout", func(u *upEnv) { u.box.HoldImport = make(chan struct{}) }, []string{"--timeout", "1s"}, "was not given in time"},
 		{"count mismatch", func(u *upEnv) { u.box.ImportAppends = true }, nil, "count mismatch"},
 	}
 	for _, tt := range tests {
@@ -362,5 +418,134 @@ func TestBackupName(t *testing.T) {
 	}
 	if safeName("") == "" {
 		t.Error("empty")
+	}
+}
+
+func TestUpload_BackupExistsWhenImportArrives(t *testing.T) {
+	u := newUp(t)
+	checked := false
+	u.hook = func(n int, _ *http.Request) error {
+		if n == 2 { // the import
+			b := u.backups(t)
+			if len(b) != 1 {
+				t.Errorf("backups at import: %v", b)
+			} else if data, _ := os.ReadFile(b[0]); string(data) != beforeXML {
+				t.Errorf("backup content %q", data)
+			}
+			checked = true
+		}
+		return nil
+	}
+	if code := u.run("--yes"); code != 0 || !checked {
+		t.Fatalf("exit %d checked %v: %s", code, checked, u.stderr.String())
+	}
+}
+
+func TestUpload_BackupNameCollision(t *testing.T) {
+	u := newUp(t)
+	for i := 0; i < 2; i++ {
+		u.stdout.Reset()
+		u.box.Phonebooks[1].XML = []byte(beforeXML)
+		if code := u.run("--yes"); code != 0 {
+			t.Fatalf("exit %d: %s", code, u.stderr.String())
+		}
+	}
+	if b := u.backups(t); len(b) != 2 {
+		t.Errorf("backups %v", b)
+	}
+}
+
+func TestUpload_PromptDoesNotConsumeTimeout(t *testing.T) {
+	u := newUp(t)
+	u.stdinR = &slowReader{300 * time.Millisecond, "y\n"}
+	if code := u.run("--timeout", "250ms"); code != 0 {
+		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+}
+
+func TestUpload_SkippedSummaryBeforePrompt(t *testing.T) {
+	u := newUp(t)
+	vcf := filepath.Join(t.TempDir(), "c.vcf")
+	os.WriteFile(vcf, []byte("BEGIN:VCARD\nVERSION:3.0\nFN:Has Number\nTEL:+49 170 1234567\nEND:VCARD\nBEGIN:VCARD\nVERSION:3.0\nFN:No Number\nEND:VCARD\n"), 0o600)
+	u.files = []string{vcf}
+	u.stdin = "y\n"
+	if code := u.run(); code != 0 {
+		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+	se := u.stderr.String()
+	i, j, k := strings.Index(se, "Converted 1 contacts (1 numbers)."), strings.Index(se, "  - No Number:"), strings.Index(se, "Continue?")
+	if i < 0 || j < i || k < j || !strings.Contains(se, "Skipped 1:") {
+		t.Errorf("stderr %q", se)
+	}
+	if !strings.Contains(u.stdout.String(), "replaced: 1 contacts.") {
+		t.Errorf("stdout %q", u.stdout.String())
+	}
+}
+
+func TestUpload_UnexpectedPhonebook(t *testing.T) {
+	u := newUp(t)
+	other := 0
+	u.box.ServeOtherID = &other
+	if code := u.run("--yes"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	if len(u.backups(t)) != 0 || len(u.box.Imports()) != 0 || !strings.Contains(u.stderr.String(), "unexpected phonebook") {
+		t.Errorf("stderr %q", u.stderr.String())
+	}
+}
+
+func TestUpload_BackupWriteFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	u := newUp(t)
+	if err := os.Chmod(u.dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(u.dir, 0o700) })
+	if code := u.run("--yes"); code != 1 || len(u.box.Imports()) != 0 {
+		t.Fatalf("exit %d imports %v", code, u.box.Imports())
+	}
+	if !strings.Contains(u.stderr.String(), "write backup") {
+		t.Errorf("stderr %q", u.stderr.String())
+	}
+}
+
+func TestUpload_VerificationExportFails(t *testing.T) {
+	u := newUp(t)
+	u.hook = func(n int, _ *http.Request) error {
+		if n == 3 {
+			return errors.New("connection reset")
+		}
+		return nil
+	}
+	if code := u.run("--yes"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	se := u.stderr.String()
+	b := u.backups(t)
+	if len(u.box.Imports()) != 1 || len(b) != 1 || !strings.Contains(se, "import was accepted but could not be verified") || !strings.Contains(se, "Backup of the previous phonebook: "+b[0]) {
+		t.Errorf("stderr %q", se)
+	}
+}
+
+func TestUpload_OldFirmware(t *testing.T) {
+	u := newUp(t)
+	u.box.OldFirmware = true
+	if code := u.run("--yes"); code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	checkLoginFailure(t, u)
+}
+
+func TestUpload_VerboseMasksHostname(t *testing.T) {
+	u := newUp(t)
+	if code := u.run("--yes", "--verbose", "--host", "http://box-of-maria.example.test"); code != 0 {
+		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+	se := u.stderr.String()
+	tr := se[strings.Index(se, "=== Step"):]
+	if strings.Contains(tr, "box-of-maria") || !strings.Contains(tr, "<HOST>") {
+		t.Errorf("trace: %s", tr)
 	}
 }

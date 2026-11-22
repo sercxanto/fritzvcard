@@ -50,16 +50,21 @@ func runExport(args []string, env Env) int {
 		return 1
 	}
 
+	printSummary(env.Stderr, cs, skipped)
+	return 0
+}
+
+// printSummary writes the conversion summary shared by export and upload.
+func printSummary(w io.Writer, cs []contacts.Contact, skipped []contacts.Skipped) {
 	numbers := 0
 	for _, c := range cs {
 		numbers += len(c.Numbers)
 	}
-	fmt.Fprintf(env.Stderr, "Converted %d contacts (%d numbers).\n", len(cs), numbers)
+	fmt.Fprintf(w, "Converted %d contacts (%d numbers).\n", len(cs), numbers)
 	if len(skipped) > 0 {
-		fmt.Fprintf(env.Stderr, "Skipped %d:\n", len(skipped))
+		fmt.Fprintf(w, "Skipped %d:\n", len(skipped))
 		for _, s := range skipped {
-			fmt.Fprintf(env.Stderr, "  - %s: %s\n", s.Name, s.Reason)
+			fmt.Fprintf(w, "  - %s: %s\n", s.Name, s.Reason)
 		}
 	}
-	return 0
 }
