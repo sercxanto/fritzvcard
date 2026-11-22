@@ -123,9 +123,10 @@ self-signed certificate), `--timeout`, `--verbose`.
 
 ### Bug reports
 
-`--verbose` prints an anonymized request trace to standard error at exit. Contacts, the
-phonebook name, the password, the session ID and the user are removed. Still read the trace
-before pasting it into an issue.
+`--verbose` prints a request trace to standard error at exit, starting at
+`--- trace (anonymized) ---`. Review the trace before sharing it in an issue.
+Do not paste all of standard error: earlier lines may contain skipped contacts' names,
+the phonebook name and the backup path.
 
 ## Development
 

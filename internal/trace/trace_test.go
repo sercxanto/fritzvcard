@@ -3,6 +3,7 @@ package trace
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -426,6 +427,32 @@ func TestRecorder_OmitBody(t *testing.T) {
 	req, _ := http.NewRequestWithContext(OmitBody(context.Background()), "POST", "http://box.example/x", strings.NewReader("PhonebookExportName=Secret"))
 	out := recordOne(t, rec, req)
 	if strings.Contains(out, "Secret") || strings.Contains(out, "Private") || !strings.Contains(out, "[response body omitted: 70 bytes]") || !strings.Contains(out, "[request body omitted: 26 bytes]") {
+		t.Errorf("trace = %s", out)
+	}
+}
+
+func TestRecorder_OmitBodyOnTransportError(t *testing.T) {
+	const marker = "private parcel"
+	wantErr := errors.New("synthetic transport failure")
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		defer req.Body.Close()
+		body, err := io.ReadAll(req.Body)
+		if err != nil || string(body) != marker {
+			t.Fatalf("transport received %q, err = %v", body, err)
+		}
+		return nil, wantErr
+	})
+	rec := NewRecorder(rt, NewAnonymizer(""))
+	req, _ := http.NewRequestWithContext(OmitBody(context.Background()), "POST", "http://box.example/x", strings.NewReader(marker))
+	if _, err := rec.RoundTrip(req); err != wantErr {
+		t.Fatalf("RoundTrip error = %v, want %v", err, wantErr)
+	}
+	var sb strings.Builder
+	if _, err := rec.WriteTo(&sb); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	if strings.Contains(out, marker) || !strings.Contains(out, "[request body omitted: 14 bytes]") || !strings.Contains(out, wantErr.Error()) {
 		t.Errorf("trace = %s", out)
 	}
 }

@@ -66,15 +66,17 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e.expect, _ = req.Context().Value(expectKey{}).(*expectSpec)
 	e.omit = omit
 	first := req.Response == nil // redirect targets are never kept in full
-	reqLen := 0
 	if req.Body != nil {
 		b, err := io.ReadAll(req.Body)
 		_ = req.Body.Close()
 		if err != nil {
 			return nil, err
 		}
-		e.reqBody = b
-		reqLen = len(b)
+		if !omit {
+			e.reqBody = b
+		} else if len(b) > 0 {
+			e.reqBody = []byte(fmt.Sprintf("[request body omitted: %d bytes]", len(b)))
+		}
 		req = req.Clone(req.Context())
 		req.Body = io.NopCloser(bytes.NewReader(b))
 	}
@@ -93,10 +95,6 @@ func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	e.resBody = b
 	switch {
 	case omit:
-		e.reqBody = nil
-		if reqLen > 0 {
-			e.reqBody = []byte(fmt.Sprintf("[request body omitted: %d bytes]", reqLen))
-		}
 		e.resBody = []byte(fmt.Sprintf("[response body omitted: %d bytes]", len(b)))
 	case isHTML(resp, b):
 		if keep && first {
