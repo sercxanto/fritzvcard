@@ -16,6 +16,21 @@ var erika = contacts.Contact{
 	Emails:  []contacts.Email{{Value: "erika@example.org", Classifier: "private"}},
 }
 
+func TestInspect_ContactNumbers(t *testing.T) {
+	const src = `<phonebook><contact><person><realName>A &amp; B</realName><number>ignore</number></person>
+<telephony><number> +12-34 </number><number>**6&#49;0</number></telephony></contact>
+<contact><person><realName>C</realName></person><telephony><number>005</number></telephony></contact>
+<other><telephony><number>ignore</number></telephony></other></phonebook>`
+	info, err := Inspect(strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ContactIdentity{{"A & B", []string{"+12-34", "**610"}}, {"C", []string{"005"}}}
+	if !reflect.DeepEqual(info.Entries, want) {
+		t.Errorf("entries = %#v, want %#v", info.Entries, want)
+	}
+}
+
 func TestWrite_Golden(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Write(&buf, "Nextcloud", []contacts.Contact{erika}); err != nil {

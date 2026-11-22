@@ -100,7 +100,8 @@ Phonebook "Nextcloud" (ID 1, currently 12 entries) will be replaced by 2 contact
 ```
 
 `--yes` skips the question. After the import the tool exports the phonebook again and checks
-the contact count and the contact names. On success it prints `Phonebook "Nextcloud" replaced:
+the contact count, contact names and phone numbers for each contact. Contact and number
+order may differ; repeated entries must occur the same number of times. On success it prints `Phonebook "Nextcloud" replaced:
 2 contacts.` and the backup path and exits with 0; errors exit with 1, usage errors with 2. The
 path of the backup is printed to standard error as soon as it is written, before the question.
 

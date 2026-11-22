@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"fritzbook/internal/fbxml"
 	"fritzbook/internal/fritz/fritzfake"
 )
 
@@ -343,6 +344,54 @@ func TestUpload_DuplicateNamesMultiset(t *testing.T) {
 	u.files = []string{f}
 	if code := u.run("--yes"); code != 0 {
 		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+}
+
+func TestUpload_IgnoredNumberOnlyChange(t *testing.T) {
+	u := newUp(t)
+	f := filepath.Join(t.TempDir(), "number.vcf")
+	if err := os.WriteFile(f, []byte("BEGIN:VCARD\nVERSION:3.0\nFN:Same Name\nTEL:123456\nEND:VCARD\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u.files = []string{f}
+	const old = `<phonebook name="Nextcloud"><contact><person><realName>Same Name</realName></person><telephony><number>654321</number></telephony></contact></phonebook>`
+	u.box.Phonebooks[1].XML = []byte(old)
+	u.box.ImportIgnored = true
+	if code := u.run("--yes"); code != 1 || strings.Contains(u.stdout.String(), "replaced") {
+		t.Fatalf("exit %d, stdout %q", code, u.stdout.String())
+	}
+	if se := u.stderr.String(); !strings.Contains(se, "number mismatch: 1") || strings.Contains(se, "654321") {
+		t.Errorf("stderr %q", se)
+	}
+	paths := u.backups(t)
+	if len(paths) != 1 {
+		t.Fatalf("backups: %v", paths)
+	}
+	if data, err := os.ReadFile(paths[0]); err != nil || string(data) != old {
+		t.Errorf("backup = %q, err = %v", data, err)
+	}
+}
+
+func TestContactDiff(t *testing.T) {
+	entry := func(name string, nums ...string) fbxml.ContactIdentity {
+		return fbxml.ContactIdentity{Name: name, Numbers: nums}
+	}
+	type entries = []fbxml.ContactIdentity
+	for _, tc := range []struct {
+		name      string
+		want, got entries
+		diff      int
+	}{
+		{"reordered", entries{entry("A", "1", "2"), entry("B", "3")}, entries{entry("B", "3"), entry("A", "2", "1")}, 0},
+		{"exchanged", entries{entry("A", "1"), entry("B", "2")}, entries{entry("A", "2"), entry("B", "1")}, 2},
+		{"duplicate names", entries{entry("A", "1"), entry("A", "2")}, entries{entry("A", "2"), entry("A", "2")}, 1},
+		{"repeated number", entries{entry("A", "1", "1")}, entries{entry("A", "1")}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if d := contactDiff(tc.want, tc.got); d != tc.diff {
+				t.Errorf("diff = %d, want %d", d, tc.diff)
+			}
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -242,8 +244,25 @@ func (u *uploader) run(files []string) (err error) {
 	if d := nameDiff(info.Names, got.Names); d > 0 {
 		return fmt.Errorf("the import was accepted but the phonebook does not match the upload (%d of %d names differ)", d, m)
 	}
+	if d := contactDiff(info.Entries, got.Entries); d > 0 {
+		return fmt.Errorf("the import was accepted but the phonebook does not match the upload (contacts with a number mismatch: %d)", d)
+	}
 	fmt.Fprintf(u.env.Stdout, "Phonebook %q replaced: %d contacts. Backup of the previous phonebook: %s\n", pb.Name, m, path)
 	return nil
+}
+
+// contactDiff counts missing contact identities, including repeated contacts and numbers.
+func contactDiff(want, got []fbxml.ContactIdentity) int {
+	keys := func(entries []fbxml.ContactIdentity) []string {
+		result := make([]string, 0, len(entries))
+		for _, e := range entries {
+			numbers := slices.Sorted(slices.Values(e.Numbers))
+			key, _ := json.Marshal(fbxml.ContactIdentity{Name: e.Name, Numbers: numbers}) // strings only
+			result = append(result, string(key))
+		}
+		return result
+	}
+	return nameDiff(keys(want), keys(got))
 }
 
 // nameDiff counts the names of want that are missing from got, comparing as multisets.
