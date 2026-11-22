@@ -45,15 +45,15 @@ internal/fritz/                   Client: login, TR-064, firmwarecfg, phonebook 
 internal/fritz/fritzfake/         fake FRITZ!Box (httptest) for tests
 internal/cli/                     export / upload / version commands
 testdata/vcf/                     synthetic vCard fixtures
-testdata/probe/                   anonymized recordings (added by the human)
+testdata/probe/                   reviewed recordings (optional, only if the owner decides)
 docs/superpowers/                 design specs and implementation plans
 .github/workflows/ci.yml, release.yml
 ```
 
 ## Testing
 
-Tests run without a real FRITZ!Box. Login and upload are tested against a fake box built from
-anonymized recordings under `testdata/probe/`. Conversion is tested with sample vCard exports.
+Tests run without a real FRITZ!Box. Login and upload are tested against a fake box
+(`internal/fritz/fritzfake`) built from the probe findings. Conversion is tested with sample vCard exports.
 
 ## Probe workflow
 
@@ -93,10 +93,11 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
    Credentials, session IDs, serials, hostnames and all contact data outside `Test` are
    replaced by placeholders, and the probe refuses to write a file in which a registered
    secret survived. Still check for anything personal before sharing.
-   The raw recording is ignored by git (`/fritzprobe-*.txt` in `.gitignore`) and must stay out
-   of git until you have reviewed it.
-5. Store the reviewed file under `testdata/probe/` (a path the ignore rule does not match) and commit it with a message like
-   `test(probe): add <model> FRITZ!OS <version> recording`.
+5. Raw recordings stay local and git-ignored (`/fritzprobe-*.txt` in `.gitignore`). Committing
+   a reviewed recording under `testdata/probe/` is optional and only done when the owner
+   explicitly decides to (message like `test(probe): add <model> FRITZ!OS <version> recording`).
+   The findings that later work relies on live in the "Probe findings" section at the end of
+   `docs/superpowers/plans/2026-11-21-fritzbook.md`.
 
 ## Conventions
 
@@ -106,4 +107,17 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
 
 ## Release
 
-To be completed. Releases are built with `task build:all` from a version tag.
+1. Make sure `task lint` and `task test` pass on the commit to release.
+2. Optional local check: `task build:all VERSION=vX.Y.Z` writes the five binaries to `dist/`
+   (`fritzbook-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64`,
+   `-windows-amd64.exe`); `dist/fritzbook-linux-amd64 version` (on Linux) prints the version.
+3. The human creates the GitHub repository (once) and pushes a tag `vX.Y.Z`:
+
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+4. The release workflow (`.github/workflows/release.yml`) runs `task build:all
+   VERSION=<tag>` and creates a GitHub release with the five binaries and generated notes.
+   CI (`.github/workflows/ci.yml`) runs lint, tests and the cross-build on every push and pull request.
