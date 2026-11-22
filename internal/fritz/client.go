@@ -19,9 +19,8 @@ type Client struct {
 	HTTP     *http.Client
 	SID      string
 
-	// ConfirmAfter is how long ImportPhonebook waits before it assumes the box wants a
-	// second factor and calls onConfirm; zero means 10 s. Tests shorten it.
-	ConfirmAfter time.Duration
+	// WaitHintAfter is how long ImportPhonebook waits before calling onWait; zero means 10 s.
+	WaitHintAfter time.Duration
 
 	user, password string
 }

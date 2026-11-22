@@ -25,9 +25,6 @@ var (
 	ErrAmbiguousPhonebook = errors.New("ambiguous phonebook")
 	// ErrUnexpectedPhonebook is returned when an export delivers a phonebook other than the requested one.
 	ErrUnexpectedPhonebook = errors.New("unexpected phonebook in export")
-	// ErrConfirmationTimeout is returned when the box waited for a second factor and the
-	// context deadline passed first.
-	ErrConfirmationTimeout = errors.New("confirmation on the FRITZ!Box was not given in time")
 )
 
 // ImportError reports that the box refused an import. Message contains no secrets.
@@ -40,10 +37,7 @@ func (e *ImportError) Error() string {
 	return fmt.Sprintf("the FRITZ!Box rejected the import (status %d): %s", e.Status, e.Message)
 }
 
-// ConfirmFunc is called once when the box seems to wait for the second factor.
-type ConfirmFunc func(hint string)
-
-const defaultConfirmAfter = 10 * time.Second
+const defaultWaitHintAfter = 10 * time.Second
 
 const tr064Hint = `enable "Allow access for applications" (Home Network > Network > Network Settings) on the FRITZ!Box and give the user the required permissions`
 
@@ -130,9 +124,8 @@ func (c *Client) ExportPhonebook(ctx context.Context, id int, name string) ([]by
 
 // ImportPhonebook replaces phonebook id with xml. Status 200 means accepted (the localized
 // answer is never interpreted); callers verify by exporting again. If the box has not
-// answered after Client.ConfirmAfter, onConfirm (may be nil) is called once and the call
-// keeps waiting until ctx ends, which is then reported as ErrConfirmationTimeout.
-func (c *Client) ImportPhonebook(ctx context.Context, id int, xml []byte, onConfirm ConfirmFunc) error {
+// answered after Client.WaitHintAfter, onWait (if non-nil) is called once while waiting.
+func (c *Client) ImportPhonebook(ctx context.Context, id int, xml []byte, onWait func()) error {
 	type result struct {
 		status int
 		err    error
@@ -142,31 +135,26 @@ func (c *Client) ImportPhonebook(ctx context.Context, id int, xml []byte, onConf
 		status, _, err := c.importRaw(ctx, id, xml, true)
 		done <- result{status, err}
 	}()
-	after := c.ConfirmAfter
+	after := c.WaitHintAfter
 	if after <= 0 {
-		after = defaultConfirmAfter
+		after = defaultWaitHintAfter
 	}
 	timer := time.NewTimer(after)
 	defer timer.Stop()
-	confirming := false
 	var r result
 	select {
 	case r = <-done:
 	case <-timer.C:
 		select {
-		case r = <-done: // the answer arrived at the same moment; nothing to confirm
+		case r = <-done: // the request finished just as the timer fired
 		default:
-			confirming = true
-			if onConfirm != nil {
-				onConfirm("confirm the import on the FRITZ!Box (enter the code on a phone or press a button on the box)")
+			if ctx.Err() == nil && onWait != nil {
+				onWait()
 			}
 			r = <-done
 		}
 	}
 	if r.err != nil {
-		if confirming && errors.Is(r.err, context.DeadlineExceeded) {
-			return ErrConfirmationTimeout
-		}
 		return r.err
 	}
 	switch {

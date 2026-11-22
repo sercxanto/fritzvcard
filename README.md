@@ -8,7 +8,8 @@ Why it exists: Nextcloud does not need your FRITZ!Box credentials, and the FRITZ
 need to be reachable from Nextcloud. You run `fritzbook` on your own computer inside your home
 network, so no credentials are stored on the box or on a server.
 
-Tested on a FRITZ!Box 6690 Cable (FRITZ!OS 267.08.25). No guarantee for other models.
+Upload was tested with a separately created phonebook on a FRITZ!Box 6690 Cable
+(FRITZ!OS 267.08.25).
 
 ## Installation
 
@@ -107,15 +108,15 @@ path of the backup is printed to standard error as soon as it is written, before
 
 To restore the previous state, open the FRITZ!Box web interface, go to Telephony > Phonebook,
 select the phonebook and use the restore/import function with the `fritzbook-backup-*.xml`
-file. This worked on the tested box (FRITZ!Box 6690 Cable, FRITZ!OS 267.08.25) with a backup
-created from test data. The phonebook is replaced as a whole: fields that `fritzbook` does not write are
+file. Restore was tested on the separately created phonebook using a backup of test data.
+The phonebook is replaced as a whole: fields that `fritzbook` does not write are
 lost in the replaced phonebook and remain only in the backup. These are quick-dial and vanity
 numbers, the VIP category, ringtones, photos (`imageURL`) and `uniqueid`.
 
-If the box does not answer within 10 seconds, the tool prints a hint that it may be waiting
-for a second-factor confirmation (a code on a phone or a button on the box) and waits for it
-up to `--timeout` (default 5 minutes). This is implemented but was NOT observed on the tested
-box, so it is untested against a real box.
+If the import request is still pending after 10 seconds, the tool prints a waiting message.
+`--timeout` limits the import request to 5 minutes by default, starting after the overwrite
+prompt. If it times out, the outcome is unknown. Check the phonebook before retrying;
+the backup remains at the path printed before the import.
 
 Flags: `--phonebook <name>` (required), `--host` (default `http://fritz.box`), `--user`,
 `--backup-dir`, `--yes`, `--insecure` (skip TLS certificate verification, for https with a

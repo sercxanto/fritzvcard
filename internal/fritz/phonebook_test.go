@@ -160,11 +160,11 @@ func TestImport_Success(t *testing.T) {
 	b.ImportAnswer = "<html>Fehler: das ist lokalisiert</html>" // the answer text never decides
 	c := newLoggedIn(t, b)
 	var called atomic.Int32
-	if err := c.ImportPhonebook(context.Background(), 1, []byte(importXML), func(string) { called.Add(1) }); err != nil {
+	if err := c.ImportPhonebook(context.Background(), 1, []byte(importXML), func() { called.Add(1) }); err != nil {
 		t.Fatal(err)
 	}
 	if called.Load() != 0 {
-		t.Error("onConfirm called for a fast import")
+		t.Error("onWait called for a fast import")
 	}
 	if got := b.Imports(); !reflect.DeepEqual(got, []int{1}) {
 		t.Errorf("imports = %v", got)
@@ -175,71 +175,82 @@ func TestImport_NilCallback(t *testing.T) {
 	b := testBox()
 	b.ImportDelay = 60 * time.Millisecond
 	c := newLoggedIn(t, b)
-	c.ConfirmAfter = 10 * time.Millisecond
+	c.WaitHintAfter = 10 * time.Millisecond
 	if err := c.ImportPhonebook(context.Background(), 1, []byte(importXML), nil); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestImport_WithConfirmation(t *testing.T) {
+func TestImport_SlowSuccessHintsOnce(t *testing.T) {
 	b := testBox()
 	b.HoldImport = make(chan struct{})
 	c := newLoggedIn(t, b)
-	c.ConfirmAfter = 30 * time.Millisecond
-	confirm := make(chan string, 4)
-	go func() { // the user confirms once asked
-		<-confirm
-		time.Sleep(20 * time.Millisecond)
-		close(b.HoldImport)
-	}()
+	c.WaitHintAfter = 30 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	var calls atomic.Int32
-	err := c.ImportPhonebook(context.Background(), 1, []byte(importXML), func(hint string) {
-		calls.Add(1)
-		confirm <- hint
+	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func() {
+		if calls.Add(1) == 1 {
+			close(b.HoldImport)
+		}
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 1 {
-		t.Errorf("onConfirm called %d times, want 1", calls.Load())
+		t.Errorf("onWait called %d times, want 1", calls.Load())
 	}
 	if got := b.Imports(); !reflect.DeepEqual(got, []int{1}) {
 		t.Errorf("imports = %v", got)
 	}
 }
 
-func TestImport_ConfirmationTimeout(t *testing.T) {
+func TestImport_DeadlineAfterHint(t *testing.T) {
 	b := testBox()
 	b.HoldImport = make(chan struct{})
 	t.Cleanup(func() { close(b.HoldImport) })
 	c := newLoggedIn(t, b)
-	c.ConfirmAfter = 20 * time.Millisecond
+	c.WaitHintAfter = 20 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	var calls atomic.Int32
-	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func(string) { calls.Add(1) })
-	if !errors.Is(err, fritz.ErrConfirmationTimeout) {
+	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func() { calls.Add(1) })
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v", err)
 	}
 	if calls.Load() != 1 {
-		t.Errorf("onConfirm called %d times", calls.Load())
+		t.Errorf("onWait called %d times", calls.Load())
 	}
 	if strings.Contains(err.Error(), c.SID) {
 		t.Errorf("error leaks SID: %v", err)
 	}
 }
 
-func TestImport_DeadlineBeforeConfirmationPhase(t *testing.T) {
+func TestImport_DeadlineBeforeHint(t *testing.T) {
 	b := testBox()
 	b.HoldImport = make(chan struct{})
 	t.Cleanup(func() { close(b.HoldImport) })
 	c := newLoggedIn(t, b)
-	c.ConfirmAfter = 5 * time.Second
+	c.WaitHintAfter = 5 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
-	err := c.ImportPhonebook(ctx, 1, []byte(importXML), nil)
-	if err == nil || errors.Is(err, fritz.ErrConfirmationTimeout) || !errors.Is(err, context.DeadlineExceeded) {
+	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func() { t.Error("unexpected wait hint") })
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want plain deadline error", err)
+	}
+}
+
+func TestImport_CancelledAfterHint(t *testing.T) {
+	b := testBox()
+	b.HoldImport = make(chan struct{})
+	t.Cleanup(func() { close(b.HoldImport) })
+	c := newLoggedIn(t, b)
+	c.WaitHintAfter = 20 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := c.ImportPhonebook(ctx, 1, []byte(importXML), cancel)
+	if !errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want cancellation", err)
 	}
 }
 
@@ -301,15 +312,15 @@ func TestImport_ConnectionDropIsNotTimeout(t *testing.T) {
 	b.ImportDelay = 80 * time.Millisecond
 	b.ImportDrop = true
 	c := newLoggedIn(t, b)
-	c.ConfirmAfter = 20 * time.Millisecond
+	c.WaitHintAfter = 20 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var calls atomic.Int32
-	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func(string) { calls.Add(1) })
-	if err == nil || errors.Is(err, fritz.ErrConfirmationTimeout) {
+	err := c.ImportPhonebook(ctx, 1, []byte(importXML), func() { calls.Add(1) })
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want the plain connection error", err)
 	}
 	if calls.Load() != 1 {
-		t.Errorf("onConfirm called %d times", calls.Load())
+		t.Errorf("onWait called %d times", calls.Load())
 	}
 }

@@ -31,8 +31,8 @@ var (
 	verifyTimeout = 60 * time.Second
 )
 
-// confirmAfter overrides Client.ConfirmAfter when non-zero; tests shorten it.
-var confirmAfter time.Duration
+// waitHintAfter overrides Client.WaitHintAfter when non-zero; tests shorten it.
+var waitHintAfter time.Duration
 
 func runUpload(args []string, env Env) int {
 	fs := flag.NewFlagSet("upload", flag.ContinueOnError)
@@ -42,7 +42,7 @@ func runUpload(args []string, env Env) int {
 	user := fs.String("user", "", "FRITZ!Box user (default $FRITZBOX_USER)")
 	yes := fs.Bool("yes", false, "do not ask for confirmation")
 	backupDir := fs.String("backup-dir", ".", "directory for the backup of the previous phonebook")
-	timeout := fs.Duration("timeout", 5*time.Minute, "overall timeout, also the wait for the box's confirmation")
+	timeout := fs.Duration("timeout", 5*time.Minute, "maximum time to wait for the import request")
 	insecure := fs.Bool("insecure", false, "skip TLS certificate verification")
 	verbose := fs.Bool("verbose", false, "print an anonymized request trace to stderr at exit")
 	fs.Usage = func() {
@@ -166,7 +166,7 @@ func (u *uploader) run(files []string) (err error) {
 	}
 
 	// Login, lookup and the export run under a fixed, generous budget; --timeout only bounds
-	// the import (including the wait for the box's confirmation) and starts after the prompt,
+	// the import request and starts after the prompt,
 	// so the time spent at the y/N prompt cannot eat it.
 	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
 	defer cancel()
@@ -174,7 +174,7 @@ func (u *uploader) run(files []string) (err error) {
 	if err != nil {
 		return err
 	}
-	c.ConfirmAfter = confirmAfter
+	c.WaitHintAfter = waitHintAfter
 	if err := c.Login(ctx, u.user, pw); err != nil {
 		return err
 	}
@@ -217,15 +217,18 @@ func (u *uploader) run(files []string) (err error) {
 		}
 	}
 
-	onConfirm := func(string) {
-		fmt.Fprintf(u.env.Stderr, "No answer from the FRITZ!Box yet. If it asks for confirmation, enter the code on a phone or press a button on the box (waiting up to %s)…\n", u.timeout)
+	onWait := func() {
+		fmt.Fprintf(u.env.Stderr, "Still waiting for the FRITZ!Box to answer the import request (waiting up to %s).\n", u.timeout)
 	}
 	// Fresh roots, not derived from the setup context: time spent at the prompt must not
 	// count against the import or verification budgets.
 	private := trace.OmitBody(context.Background())
 	ictx, icancel := context.WithTimeout(private, u.timeout)
 	defer icancel()
-	if err := c.ImportPhonebook(ictx, pb.ID, newXML, onConfirm); err != nil {
+	if err := c.ImportPhonebook(ictx, pb.ID, newXML, onWait); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("import timed out; the outcome is unknown: %w", err)
+		}
 		return err
 	}
 	vctx, vcancel := context.WithTimeout(private, verifyTimeout)

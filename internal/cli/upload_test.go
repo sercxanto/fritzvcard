@@ -67,8 +67,8 @@ func (r *slowReader) Read(p []byte) (int, error) {
 
 func newUp(t *testing.T) *upEnv {
 	t.Helper()
-	confirmAfter = 50 * time.Millisecond
-	t.Cleanup(func() { confirmAfter = 0 })
+	waitHintAfter = 50 * time.Millisecond
+	t.Cleanup(func() { waitHintAfter = 0 })
 	box := &fritzfake.Box{
 		User: "alice", Password: "s3cret-pw", MultipartExportWorks: true,
 		Phonebooks: []fritzfake.Phonebook{
@@ -284,7 +284,7 @@ func TestUpload_FailureMentionsBackup(t *testing.T) {
 		want  string
 	}{
 		{"import rejected", func(u *upEnv) { u.box.ImportStatus = 500 }, nil, "rejected the import"},
-		{"confirmation timeout", func(u *upEnv) { u.box.HoldImport = make(chan struct{}) }, []string{"--timeout", "1s"}, "was not given in time"},
+		{"import timeout", func(u *upEnv) { u.box.HoldImport = make(chan struct{}) }, []string{"--timeout", "1s"}, "import timed out; the outcome is unknown"},
 		{"count mismatch", func(u *upEnv) { u.box.ImportAppends = true }, nil, "count mismatch"},
 		{"import ignored, same count", func(u *upEnv) {
 			u.box.Phonebooks[1].XML = []byte(twoNamesXML)
@@ -303,6 +303,7 @@ func TestUpload_FailureMentionsBackup(t *testing.T) {
 				t.Fatalf("backups %v", b)
 			}
 			se := u.stderr.String()
+			checkNoDevicePrompt(t, se)
 			if !strings.Contains(se, "error: ") || !strings.Contains(se, tt.want) {
 				t.Errorf("stderr %q lacks %q", se, tt.want)
 			}
@@ -426,13 +427,23 @@ func TestWriteBackup_RemovesPartialFileOnSyncError(t *testing.T) {
 	}
 }
 
-func TestUpload_ConfirmationHint(t *testing.T) {
+func checkNoDevicePrompt(t *testing.T, text string) {
+	t.Helper()
+	for _, word := range []string{"confirmation", "code on a phone", "button", "second factor"} {
+		if strings.Contains(strings.ToLower(text), word) {
+			t.Errorf("unexpected %q in %q", word, text)
+		}
+	}
+}
+
+func TestUpload_WaitHint(t *testing.T) {
 	u := newUp(t)
 	u.box.ImportDelay = 300 * time.Millisecond
 	if code := u.run("--yes"); code != 0 {
 		t.Fatalf("exit %d: %s", code, u.stderr.String())
 	}
-	if !strings.Contains(u.stderr.String(), "No answer from the FRITZ!Box yet. If it asks for confirmation") {
+	checkNoDevicePrompt(t, u.stderr.String())
+	if !strings.Contains(u.stderr.String(), "Still waiting for the FRITZ!Box to answer the import request") {
 		t.Errorf("stderr %q", u.stderr.String())
 	}
 }

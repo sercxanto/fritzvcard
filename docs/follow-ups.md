@@ -5,17 +5,11 @@ non-blocking). Pick from here for future work; remove an item when it is done.
 
 ## Before relying on it more widely
 
-- **Second factor is unobserved.** The author's FRITZ!Box 6690 Cable (FRITZ!OS 267.08.25) never
-  asked for a confirmation. `ImportPhonebook` assumes the import request stays pending until
-  the user confirms and calls the hint after 10 s. A probe round on a box with the second
-  factor enabled would settle this (see "Probe findings" in the implementation plan).
 - **Name check may reject a good upload.** After an import, `upload` requires the exported
   names to equal the uploaded ones (multiset). If a box normalizes names (truncation,
   whitespace, control characters, Unicode normalization), it reports a mismatch although the
   import was applied. It fails closed; relax or normalize if it shows up in practice.
-- **Main phonebook export is untested.** Only the `Test` book was exported via `firmwarecfg`.
-  If the TR-064 name of a book differs from the name inside its export, `upload` stops before
-  any write ("unexpected phonebook in export").
+- The backup export of phonebook ID 0 was not exercised on the tested box.
 
 ## CLI
 
