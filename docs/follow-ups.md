@@ -72,7 +72,5 @@ non-blocking). Pick from here for future work; remove an item when it is done.
 
 ## Build and CI
 
-- `release.yml` interpolates `${{ github.ref_name }}` unquoted in `run:`; harden via
-  `env: VERSION: ${{ github.ref_name }}`.
 - The workflows were reviewed by hand only (no `actionlint` in the container).
 - `.devcontainer/devcontainer-lock.json` is untracked: commit it or add it to `.gitignore`.

@@ -136,6 +136,9 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
    git push origin vX.Y.Z
    ```
 
-4. The release workflow (`.github/workflows/release.yml`) runs `task build:all
-   VERSION=<tag>` and creates a GitHub release with the five binaries and generated notes.
+4. The release workflow (`.github/workflows/release.yml`) accepts only stable `vX.Y.Z`
+   tags with three numeric components. Other `v*` tags fail before the build. On the
+   tagged commit it runs `task lint`, `task test`, then `task build:all VERSION=<tag>`.
+   Only if all three succeed does it publish the five binaries with the tag embedded as
+   their version and generate release notes.
    CI (`.github/workflows/ci.yml`) runs lint, tests and the cross-build on every push and pull request.
