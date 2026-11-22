@@ -119,7 +119,7 @@ func run(args []string, env Env) int {
 	p := &probe{env: env, c: c, rec: rec, anon: anon, in: bufio.NewReader(env.Stdin), timeout: *timeout, user: *user, password: password}
 	runErr := p.steps()
 	if p.loggedIn {
-		p.step(11, "logout")
+		p.step(10, "logout")
 		if err := c.Logout(context.Background()); err != nil {
 			rec.Note("logout failed: %v", err)
 		}
@@ -131,7 +131,7 @@ func run(args []string, env Env) int {
 		code = 1
 	}
 
-	p.step(12, "write trace")
+	p.step(11, "write trace")
 	path := *outPath
 	if path == "" {
 		path = "fritzprobe-" + env.Now().Format("20060102-150405") + ".txt"
@@ -173,7 +173,7 @@ func (p *probe) ask(q string) string {
 	return strings.TrimSpace(line)
 }
 
-// steps runs steps 1-10. The caller logs out and writes the trace.
+// steps runs steps 1-9. The caller logs out and writes the trace.
 func (p *probe) steps() error {
 	ctx := context.Background()
 	// Run-specific marker: names and numbers of the probe contacts differ per run, so the
@@ -233,35 +233,17 @@ func (p *probe) steps() error {
 	id := testIDs[0]
 	p.rec.Note("Test phonebook has ID %d", id)
 
-	p.step(5, "firmwarecfg multipart export experiment (Test only, read-only)")
-	// Do not follow redirects, so the note matches the first hop shown in the trace.
-	noRedirect := *p.c
-	hc := *p.c.HTTP
-	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	noRedirect.HTTP = &hc
-	status, body, err := noRedirect.ExportPhonebookMultipartRaw(trace.KeepBody(p.bodyCtx(ctx, testBook)), id, testBook)
-	switch {
-	case err != nil:
-		p.rec.Note("multipart export failed: %v", err)
-	default:
-		if info, ierr := fbxml.Inspect(bytes.NewReader(body)); ierr != nil {
-			p.rec.Note("multipart export: first-hop status %d, not a phonebook", status)
-		} else {
-			p.rec.Note("multipart export: first-hop status %d, phonebook with %d contacts", status, info.Contacts)
-		}
-	}
-
-	p.step(6, "read Test via the TR-064 phonebook URL (before) and count the other phonebooks")
+	p.step(5, "export Test (before) and count the other phonebooks via their TR-064 phonebook URLs")
 	othersBefore := p.otherCounts(ctx, others, urls)
 	p.noteOthers("before", othersBefore)
-	before, haveBefore := p.readTest(ctx, urls[id])
+	before, haveBefore := p.readTest(ctx, id)
 	if haveBefore {
 		p.rec.Note("before: %d contacts in Test", before.count)
 	} else {
-		p.rec.Note("before: could not read Test via the phonebook URL")
+		p.rec.Note("before: could not export Test")
 	}
 
-	p.step(7, "confirm the write")
+	p.step(6, "confirm the write")
 	p.say("Planned write: import 3 synthetic contacts (%s, %s, %s) into the phonebook %q (ID %d).", probeName(1), probeName(2), probeName(3), testBook, id)
 	p.say("No other phonebook is touched.")
 	if p.ask("Type 'yes' to continue:") != "yes" {
@@ -269,7 +251,7 @@ func (p *probe) steps() error {
 		return errors.New("aborted, nothing was written")
 	}
 
-	p.step(8, "import")
+	p.step(7, "import")
 	var cs []contacts.Contact
 	for i := 1; i <= 3; i++ {
 		cs = append(cs, contacts.Contact{
@@ -303,13 +285,13 @@ func (p *probe) steps() error {
 		p.rec.Note("import did not finish within %s (cancelled)", p.timeout)
 	}
 
-	p.step(9, "human observations")
+	p.step(8, "human observations")
 	p.rec.Note("Did the box ask for confirmation? %s", p.ask("Did the box ask for confirmation? (y/n)"))
 	p.rec.Note("Did you confirm it? %s", p.ask("Did you confirm it? (y/n)"))
 
-	p.step(10, "read Test via the TR-064 phonebook URL (after)")
-	if after, ok := p.readTest(ctx, urls[id]); !ok {
-		p.rec.Note("after: could not read Test via the phonebook URL; import verdict: %s", verdict(before, haveBefore, after, false, 0))
+	p.step(9, "export Test (after)")
+	if after, ok := p.readTest(ctx, id); !ok {
+		p.rec.Note("after: could not export Test; import verdict: %s", verdict(before, haveBefore, after, false, 0))
 	} else {
 		names := realNames(after.body)
 		present := 0
@@ -440,16 +422,23 @@ func (p *probe) noteOthers(when string, m map[int]count) {
 	p.rec.Note("other phonebooks %s: %s", when, strings.Join(parts, "; "))
 }
 
-// readTest reads the Test phonebook via its URL, keeping the body in the trace unless the
-// box answers with another phonebook (trace.ExpectPhonebook).
-func (p *probe) readTest(ctx context.Context, u string) (count, bool) {
-	c, status := p.fetchBook(trace.ExpectPhonebook(trace.KeepBody(ctx), testBook, true), u)
-	if c.ok && c.name != testBook {
-		p.rec.Note("WARNING: the phonebook URL of Test served another phonebook")
-		c = count{}
+// readTest exports the Test phonebook through the multipart firmwarecfg export (the same
+// call the upload uses; it checks the exported name). phonebook.lua is not used for Test
+// because the real box adds virtual entries there (finding F4). The body is kept in the
+// trace unless the box answers with another phonebook (trace.ExpectPhonebook).
+func (p *probe) readTest(ctx context.Context, id int) (count, bool) {
+	body, err := p.c.ExportPhonebook(trace.ExpectPhonebook(trace.KeepBody(ctx), testBook, true), id, testBook)
+	if err != nil {
+		p.rec.Note("export of Test failed: %v", err)
+		return count{}, false
 	}
-	p.rec.Note("phonebook URL fetch of Test: status %d, parsed=%v, contacts=%d", status, c.ok, c.count)
-	return c, c.ok
+	info, err := fbxml.Inspect(bytes.NewReader(body))
+	if err != nil {
+		p.rec.Note("export of Test is not a phonebook: %v", err)
+		return count{}, false
+	}
+	p.rec.Note("export of Test: %d contacts", info.Contacts)
+	return count{count: info.Contacts, ok: true, name: info.Name, body: body}, true
 }
 
 // fetchBook does a read-only GET of a NewPhonebookURL and parses the contact count.
@@ -500,12 +489,4 @@ func (p *probe) guardName(name string) {
 	if name != testBook {
 		p.anon.AddGuard(name)
 	}
-}
-
-// bodyCtx keeps response bodies only for the Test phonebook.
-func (p *probe) bodyCtx(ctx context.Context, name string) context.Context {
-	if name == testBook {
-		return trace.ExpectPhonebook(ctx, testBook, true)
-	}
-	return trace.OmitBody(ctx)
 }

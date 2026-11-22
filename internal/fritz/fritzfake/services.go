@@ -132,9 +132,8 @@ func writeFault(w http.ResponseWriter, code int, desc string) {
 		soapNS, code, desc)
 }
 
-// handleFirmwareCfg serves phonebook export (urlencoded form) and import (multipart).
-// An import whose fields are not sid, PhonebookId, PhonebookImportFile in this order is
-// answered with 400.
+// handleFirmwareCfg serves phonebook export and import (both multipart). An import whose
+// fields are not sid, PhonebookId, PhonebookImportFile in this order is answered with 400.
 func (b *Box) handleFirmwareCfg(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -144,36 +143,8 @@ func (b *Box) handleFirmwareCfg(w http.ResponseWriter, r *http.Request) {
 		b.handleImport(w, r)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if r.PostForm.Get("sid") != validSID {
-		http.Error(w, "invalid sid", http.StatusForbidden)
-		return
-	}
-	if _, ok := r.PostForm["PhonebookExport"]; !ok {
-		http.Error(w, "missing PhonebookExport", http.StatusBadRequest)
-		return
-	}
-	id, _ := strconv.Atoi(r.PostForm.Get("PhonebookId"))
-	// Like the real box, an export whose name does not match the phonebook's name is
-	// bounced to the login page.
-	if b.ExportBroken || b.phonebookName(id) != r.PostForm.Get("PhonebookExportName") || b.phonebookName(id) == "" {
-		http.Redirect(w, r, "/index.lua", http.StatusFound)
-		return
-	}
-	if b.ServeOtherID != nil {
-		id = *b.ServeOtherID
-	}
-	if x := b.PhonebookXML(id); x != nil {
-		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(b.phonebookName(id), " ", "_")+`.xml"`)
-		w.Write(x)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	io.WriteString(w, "<html><body>no such phonebook</body></html>")
+	// The real box bounces the urlencoded export to the login page (finding F3).
+	http.Redirect(w, r, "/index.lua", http.StatusFound)
 }
 
 func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +261,7 @@ func appendContacts(base, add []byte) []byte {
 // to, the fake rejects it with a redirect to the login page unless MultipartExportWorks is set.
 func (b *Box) handleMultipartExport(w http.ResponseWriter, r *http.Request, vals map[string][]byte) {
 	id, _ := strconv.Atoi(string(vals["PhonebookId"]))
-	if !b.MultipartExportWorks || string(vals["sid"]) != validSID || b.phonebookName(id) != string(vals["PhonebookExportName"]) || b.phonebookName(id) == "" {
+	if !b.MultipartExportWorks || b.ExportBroken || string(vals["sid"]) != validSID || b.phonebookName(id) != string(vals["PhonebookExportName"]) || b.phonebookName(id) == "" {
 		http.Redirect(w, r, "/index.lua", http.StatusFound)
 		return
 	}
@@ -312,6 +283,15 @@ var rePBOpen = regexp.MustCompile(`<phonebook\b`)
 // renderPhonebookLua turns stored XML into the format of the real phonebook.lua download.
 func (b *Box) renderPhonebookLua(id int, x []byte) []byte {
 	s := string(x)
+	if v := b.LuaVirtualEntries[id]; v > 0 {
+		var extra strings.Builder
+		for i := 1; i <= v; i++ {
+			fmt.Fprintf(&extra, "<contact><category>0</category><person><realName>Virtual Entry %d</realName></person></contact>", i)
+		}
+		if k := strings.LastIndex(s, "</phonebook>"); k >= 0 {
+			s = s[:k] + extra.String() + s[k:]
+		}
+	}
 	n := strings.Count(s, "<contact>")
 	s = strings.Replace(s, "<phonebooks>", fmt.Sprintf("<phonebooks><!-- id:%d , name: %s -->", id, b.phonebookName(id)), 1)
 	if loc := rePBOpen.FindStringIndex(s); loc != nil {

@@ -67,14 +67,16 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
    synthetic contacts (`Probe Contact 1-3`) into `Test` and nothing else; it refuses to write
    if TR-064 does not confirm exactly one phonebook named `Test`. There is no fallback listing.
    Everything the probe reads is read-only until the typed `yes`: the TR-064 phonebook list,
-   one multipart `firmwarecfg` export experiment for `Test`, and a GET of each phonebook's
-   TR-064 download URL (`phonebook.lua`). The other phonebooks are read only to compare their
-   contact counts before and after the import; their names and contents are never recorded.
+   the multipart `firmwarecfg` export of `Test` (the real box adds virtual entries to
+   `phonebook.lua` downloads, so `Test` is never read that way), and a GET of each other
+   phonebook's TR-064 download URL (`phonebook.lua`). The other phonebooks are read only to
+   compare their contact counts before and after the import; their names and contents are
+   never recorded.
    The probe contacts carry a per-run tag (`Probe Contact 1 <HHMMSS>`); after the import the probe
    re-reads `Test` and reports a verdict: `replaced`, `appended`, `import not visible`,
    `ambiguous (Test was empty before)`, `unknown` or `unexpected`. `Test`'s contents are
-   recorded verbatim (before and after) in the shared file, so empty `Test` or check its
-   contents before the run. If a count of another phonebook cannot be read it prints `UNVERIFIED`;
+   recorded verbatim (before and after) in the shared file, so never run the probe while
+   `Test` holds real contacts: empty it or fill it with harmless entries first. If a count of another phonebook cannot be read it prints `UNVERIFIED`;
    then compare the phonebooks manually against your backup.
 2. Build it on a machine that can reach the box: `task probe` produces `dist/fritzprobe`
    (default `darwin/arm64`; override with `GOOS=... GOARCH=...`).

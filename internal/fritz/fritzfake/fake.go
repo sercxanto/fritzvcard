@@ -42,6 +42,7 @@ type Box struct {
 	BrokenBookID         *int          // GetPhonebook for this ID answers with a fault
 	ImportRedirect       bool          // imports are answered with a redirect to the login page
 	ServeOtherID         *int          // exports and phonebook.lua serve this ID's XML whatever was asked (box ignoring the ID)
+	LuaVirtualEntries    map[int]int   // phonebook.lua adds this many virtual contacts to the book with the ID (the real box does, finding F4); exports do not
 	ImportIgnored        bool          // imports are answered with 200 but change nothing (no-op, e.g. an unobserved error page)
 	ImportAppends        bool          // imports add contacts instead of replacing the phonebook
 	MultipartExportWorks bool          // the multipart firmwarecfg export is served (otherwise bounced to the login page); opt-in so the probe tests can cover both answers

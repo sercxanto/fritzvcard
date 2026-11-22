@@ -8,33 +8,10 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"net/url"
 	"strconv"
-	"strings"
 )
 
 const maxRawBody = 64 << 20
-
-// ExportPhonebookRaw requests the phonebook via cgi-bin/firmwarecfg and returns the
-// status and body without interpreting them.
-func (c *Client) ExportPhonebookRaw(ctx context.Context, id int, name string) (status int, body []byte, err error) {
-	if c.SID == "" {
-		return 0, nil, ErrNotLoggedIn
-	}
-	form := url.Values{
-		"sid":                 {c.SID},
-		"PhonebookId":         {strconv.Itoa(id)},
-		"PhonebookExportName": {name},
-		"PhonebookExport":     {""},
-	}
-	return c.firmwarecfg(ctx, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()), false)
-}
-
-// ExportPhonebookMultipartRaw is ExportPhonebookRaw with a multipart/form-data body (fields
-// sid, PhonebookId, PhonebookExportName, PhonebookExport in this order).
-func (c *Client) ExportPhonebookMultipartRaw(ctx context.Context, id int, name string) (status int, body []byte, err error) {
-	return c.exportMultipart(ctx, id, name, false)
-}
 
 func (c *Client) exportMultipart(ctx context.Context, id int, name string, noRedirect bool) (status int, body []byte, err error) {
 	if c.SID == "" {

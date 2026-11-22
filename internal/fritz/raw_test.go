@@ -80,17 +80,17 @@ func TestTR064_RequiresLogin(t *testing.T) {
 
 func TestExportImportRaw(t *testing.T) {
 	b := testBox()
+	b.MultipartExportWorks = true
 	c := newLoggedIn(t, b)
-	status, body, err := c.ExportPhonebookRaw(context.Background(), 0, "Privat")
-	if err != nil || status != 200 || !strings.Contains(string(body), `name="Privat"`) {
-		t.Fatalf("export: %d %q %v", status, body, err)
+	body, err := c.ExportPhonebook(context.Background(), 0, "Privat")
+	if err != nil || !strings.Contains(string(body), `name="Privat"`) {
+		t.Fatalf("export: %q %v", body, err)
 	}
-	status, body, err = c.ExportPhonebookRaw(context.Background(), 7, "")
-	if err != nil || strings.Contains(string(body), "<phonebook") {
-		t.Fatalf("export of unknown id: %d %q %v", status, body, err)
+	if _, err := c.ExportPhonebook(context.Background(), 0, ""); err == nil {
+		t.Fatal("export with a wrong name must fail (bounced to the login page)")
 	}
 	xml := []byte(`<phonebooks><phonebook name="Test"><contact><person><realName>Probe Contact 1</realName></person></contact></phonebook></phonebooks>`)
-	status, _, err = c.ImportPhonebookRaw(context.Background(), 1, xml)
+	status, _, err := c.ImportPhonebookRaw(context.Background(), 1, xml)
 	if err != nil || status != 200 {
 		t.Fatalf("import: %d %v", status, err)
 	}
@@ -99,32 +99,5 @@ func TestExportImportRaw(t *testing.T) {
 	}
 	if string(b.PhonebookXML(1)) != string(xml) {
 		t.Errorf("stored xml = %q", b.PhonebookXML(1))
-	}
-}
-
-func TestExportRaw_WrongNameBouncesToLoginPage(t *testing.T) {
-	b := testBox()
-	c := newLoggedIn(t, b)
-	_, body, err := c.ExportPhonebookRaw(context.Background(), 0, "")
-	if err != nil || strings.Contains(string(body), "<phonebook") {
-		t.Fatalf("got %q %v", body, err)
-	}
-	reqs := b.Requests()
-	if reqs[len(reqs)-1] != "GET /index.lua" {
-		t.Errorf("requests = %v", reqs)
-	}
-}
-
-func TestExportPhonebookMultipartRaw(t *testing.T) {
-	b := testBox()
-	c := newLoggedIn(t, b)
-	status, body, err := c.ExportPhonebookMultipartRaw(context.Background(), 1, "Test")
-	if err != nil || strings.Contains(string(body), "<phonebook") {
-		t.Fatalf("default fake bounces it: %d %q %v", status, body, err)
-	}
-	b.MultipartExportWorks = true // the fake asserts the field order
-	status, body, err = c.ExportPhonebookMultipartRaw(context.Background(), 1, "Test")
-	if err != nil || status != 200 || !strings.Contains(string(body), `name="Test"`) {
-		t.Fatalf("got %d %q %v", status, body, err)
 	}
 }

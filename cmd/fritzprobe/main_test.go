@@ -18,7 +18,7 @@ import (
 const privatXML = `<?xml version="1.0"?><phonebooks><phonebook name="Privat"><contact><person><realName>Secret Person</realName></person><telephony><number type="home">+49 30 5551234</number></telephony></contact></phonebook></phonebooks>`
 
 func box(books ...fritzfake.Phonebook) *fritzfake.Box {
-	return &fritzfake.Box{User: "alice", Password: "s3cret", Phonebooks: books}
+	return &fritzfake.Box{User: "alice", Password: "s3cret", MultipartExportWorks: true, Phonebooks: books}
 }
 
 var (
@@ -97,7 +97,7 @@ func TestProbe_WritesOnlyToTest(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	for _, want := range []string{"STEP 1", "STEP 12", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebooks before: ID 0: 1 contacts", "phonebook URL fetch of Test: status 200", "after: 3 contacts in Test; 3 of 3 probe contacts present; import verdict: ambiguous (Test was empty before)", "filename=pbook.xml", "unchanged", "after: 3 contacts in Test"} {
+	for _, want := range []string{"STEP 1", "STEP 11", "Probe Contact 1", "Did the box ask for confirmation", "model=FRITZ!Box 7590 firmware=7.57", "other phonebooks before: ID 0: 1 contacts", "export of Test: 0 contacts", "after: 3 contacts in Test; 3 of 3 probe contacts present; import verdict: ambiguous (Test was empty before)", "filename=\"export_Test.xml\"", "unchanged", "after: 3 contacts in Test"} {
 		if !strings.Contains(r.trace, want) {
 			t.Errorf("trace lacks %q", want)
 		}
@@ -163,12 +163,12 @@ func TestProbe_FindsTestViaTR064WhenExportListingFails(t *testing.T) {
 	if !strings.Contains(r.trace, "body omitted") {
 		t.Error("login page not replaced by a placeholder")
 	}
-	// the TR-064 URL is fetched for Test only
+	// phonebook.lua is read for the other book only (before and after), never for Test
 	n := map[int]int{}
 	for _, id := range b.PhonebookFetches() {
 		n[id]++
 	}
-	if n[1] != 2 || n[0] != 2 { // Test and the other book, before and after the import
+	if n[1] != 0 || n[0] != 2 {
 		t.Errorf("phonebook.lua fetches = %v", n)
 	}
 }
@@ -238,8 +238,8 @@ func TestProbe_PhonebookURLHostnameRedacted(t *testing.T) {
 	if strings.Contains(r.trace, "maria") {
 		t.Errorf("trace contains the host name")
 	}
-	if !strings.Contains(r.trace, "phonebook URL fetch of Test: status 200") {
-		t.Error("URL fetch not performed")
+	if !strings.Contains(r.trace, "export of Test: 0 contacts") {
+		t.Error("export of Test not performed")
 	}
 }
 
@@ -268,7 +268,7 @@ func TestProbe_OmittedExportHeadersAndNames(t *testing.T) {
 			t.Errorf("trace contains %q", leak)
 		}
 	}
-	if !strings.Contains(r.trace, "filename=pbook.xml") {
+	if !strings.Contains(r.trace, "filename=\"export_Test.xml\"") {
 		t.Error("Test book export headers should be kept")
 	}
 }
@@ -342,16 +342,18 @@ func TestProbe_UnverifiedWhenOtherCountsUnreadable(t *testing.T) {
 	}
 }
 
-func TestProbe_MultipartExportExperiment(t *testing.T) {
-	b := box(privat, testPB)
-	b.MultipartExportWorks = true
+func TestProbe_VerdictIgnoresPhonebookLuaVirtualEntries(t *testing.T) {
+	earlier := bookWith("Probe Contact 1 000000", "Probe Contact 2 000000", "Probe Contact 3 000000")
+	b := box(privat, earlier)
+	b.LuaVirtualEntries = map[int]int{1: 10} // phonebook.lua shows ten more entries for Test
 	r := runProbe(t, b, "yes\ny\ny\n")
-	if !strings.Contains(r.trace, "multipart export: first-hop status 200, phonebook with 0 contacts") {
-		t.Error("multipart export result missing")
+	if !strings.Contains(r.trace, "import verdict: replaced") || strings.Contains(r.trace, "unexpected") || strings.Contains(r.trace, "Virtual Entry") {
+		t.Errorf("verdict depends on phonebook.lua:\n%s", r.trace)
 	}
-	r = runProbe(t, box(privat, testPB), "yes\ny\ny\n")
-	if !strings.Contains(r.trace, "multipart export: first-hop status 302, not a phonebook") {
-		t.Error("bounced multipart export not noted")
+	for _, id := range b.PhonebookFetches() {
+		if id == 1 {
+			t.Error("Test was read via phonebook.lua")
+		}
 	}
 }
 
@@ -384,7 +386,7 @@ func TestProbe_VerdictCannotBeFooled(t *testing.T) {
 		{"noop, other contacts", bookWith("A One", "B Two"), func(b *fritzfake.Box) { b.ImportRedirect = true }, "import not visible (0 of 3 present)"},
 		{"noop, empty", testPB, func(b *fritzfake.Box) { b.ImportRedirect = true }, "import not visible (0 of 3 present)"},
 		{"empty before, real import", testPB, func(*fritzfake.Box) {}, "ambiguous (Test was empty before)"},
-		{"unreadable before", earlier, func(b *fritzfake.Box) { one := 1; b.LuaForbiddenID = &one }, "unknown (Test could not be read before or after)"},
+		{"unreadable before", earlier, func(b *fritzfake.Box) { b.ExportBroken = true }, "unknown (Test could not be read before or after)"},
 		{"real replace", earlier, func(*fritzfake.Box) {}, "replaced"},
 		{"real append", bookWith("A One", "B Two"), func(b *fritzfake.Box) { b.ImportAppends = true }, "appended"},
 	}
