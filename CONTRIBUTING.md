@@ -15,6 +15,22 @@ Development happens in a DevContainer (Go, Node, Claude Code and Task preinstall
   devcontainer exec --workspace-folder . claude
   ```
 
+### Superpowers for Claude Code
+
+The repository declares Superpowers as a project plugin in
+[`.claude/settings.json`](.claude/settings.json). The settings entry does not
+download the plugin in a fresh checkout. If you don't already have it from the
+official marketplace, run this from the repository root inside the DevContainer:
+
+```sh
+claude plugin install superpowers@claude-plugins-official --scope project
+```
+
+Start a new Claude Code session or run `/reload-plugins` in an open session.
+Use `claude plugin list` to check the plugin's status. An existing user-scope
+installation of `superpowers@claude-plugins-official` does not need to be
+installed again for this project.
+
 ## Tasks
 
 Builds and checks run through [Task](https://taskfile.dev) (`task --list`).
