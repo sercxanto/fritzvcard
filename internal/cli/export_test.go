@@ -97,6 +97,35 @@ func TestWriteExportFile_FailurePreservesTarget(t *testing.T) {
 	checkOnlyEntry(t, dir, "out.xml", false)
 }
 
+func TestWriteExportFile_ReportsCleanupFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.xml")
+	writeErr := errors.New("synthetic write failure")
+	var temp string
+	err := writeExportFile(path, func(w io.Writer) error {
+		f := w.(*os.File)
+		temp = f.Name()
+		// Leave a nonempty directory at the temp path so cleanup fails on all platforms.
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(temp); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(temp, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(temp, "entry"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return writeErr
+	})
+	var cleanup *os.PathError
+	if !errors.Is(err, writeErr) || !errors.As(err, &cleanup) || cleanup.Path != temp ||
+		!strings.Contains(err.Error(), writeErr.Error()) || !strings.Contains(err.Error(), cleanup.Error()) {
+		t.Fatalf("expected write and cleanup errors for %s, got %v", temp, err)
+	}
+}
+
 func TestWriteExportFile_FailedRename(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "target")

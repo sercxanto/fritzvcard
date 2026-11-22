@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +35,9 @@ func TestHelpForms(t *testing.T) {
 				page = out
 			}
 			tokens := strings.Fields(page)
+			if tc.cmd == "upload" && !regexp.MustCompile(`(?m)^[ \t]*--timeout\b.*\(default 5m0s\)`).MatchString(page) {
+				t.Errorf("--timeout line lacks the five-minute default in %q", page)
+			}
 			for _, flag := range strings.Fields(tc.flags + " -h --help") {
 				wrong := "-" + flag
 				if strings.HasPrefix(flag, "--") {

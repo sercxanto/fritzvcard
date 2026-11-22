@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,7 +23,9 @@ func writeExportFile(path string, write func(io.Writer) error) error {
 		err = os.Rename(f.Name(), path)
 	}
 	if err != nil {
-		os.Remove(f.Name())
+		if cleanupErr := os.Remove(f.Name()); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
 	}
 	return err
 }

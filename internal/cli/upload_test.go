@@ -303,9 +303,10 @@ func TestUpload_FailureMentionsBackup(t *testing.T) {
 				t.Fatalf("backups %v", b)
 			}
 			se := u.stderr.String()
-			checkNoDevicePrompt(t, se)
-			if !strings.Contains(se, "error: ") || !strings.Contains(se, tt.want) {
-				t.Errorf("stderr %q lacks %q", se, tt.want)
+			msg := diagnosticLine(t, se, "error: ", b[0])
+			checkNoDevicePrompt(t, msg)
+			if !strings.Contains(msg, tt.want) {
+				t.Errorf("diagnostic %q lacks %q", msg, tt.want)
 			}
 			if n := strings.Count(se, "Backup of the current phonebook: "+b[0]); n != 1 {
 				t.Errorf("stderr %q: backup path printed %d times, want 1", se, n)
@@ -361,12 +362,12 @@ func TestUpload_IgnoredNumberOnlyChange(t *testing.T) {
 	if code := u.run("--yes"); code != 1 || strings.Contains(u.stdout.String(), "replaced") {
 		t.Fatalf("exit %d, stdout %q", code, u.stdout.String())
 	}
-	if se := u.stderr.String(); !strings.Contains(se, "number mismatch: 1") || strings.Contains(se, "654321") {
-		t.Errorf("stderr %q", se)
-	}
 	paths := u.backups(t)
 	if len(paths) != 1 {
 		t.Fatalf("backups: %v", paths)
+	}
+	if msg := diagnosticLine(t, u.stderr.String(), "error: ", paths[0]); !strings.Contains(msg, "number mismatch: 1") || strings.Contains(msg, "654321") {
+		t.Errorf("diagnostic %q", msg)
 	}
 	if data, err := os.ReadFile(paths[0]); err != nil || string(data) != old {
 		t.Errorf("backup = %q, err = %v", data, err)
@@ -427,6 +428,19 @@ func TestWriteBackup_RemovesPartialFileOnSyncError(t *testing.T) {
 	}
 }
 
+func diagnosticLine(t *testing.T, stderr, prefix, backup string) string {
+	t.Helper()
+	// Error diagnostics collapse whitespace, including whitespace in a path.
+	stderr = strings.NewReplacer(backup, "<backup>", oneLine(backup), "<backup>").Replace(stderr)
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	t.Fatalf("no %q diagnostic in %q", prefix, stderr)
+	return ""
+}
+
 func checkNoDevicePrompt(t *testing.T, text string) {
 	t.Helper()
 	for _, word := range []string{"confirmation", "code on a phone", "button", "second factor"} {
@@ -442,9 +456,14 @@ func TestUpload_WaitHint(t *testing.T) {
 	if code := u.run("--yes"); code != 0 {
 		t.Fatalf("exit %d: %s", code, u.stderr.String())
 	}
-	checkNoDevicePrompt(t, u.stderr.String())
-	if !strings.Contains(u.stderr.String(), "Still waiting for the FRITZ!Box to answer the import request") {
-		t.Errorf("stderr %q", u.stderr.String())
+	b := u.backups(t)
+	if len(b) != 1 {
+		t.Fatalf("backups %v", b)
+	}
+	msg := diagnosticLine(t, u.stderr.String(), "Still waiting", b[0])
+	checkNoDevicePrompt(t, msg)
+	if !strings.Contains(msg, "Still waiting for the FRITZ!Box to answer the import request") {
+		t.Errorf("wait hint %q", msg)
 	}
 }
 

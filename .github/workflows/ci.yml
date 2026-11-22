@@ -20,7 +20,7 @@ jobs:
           version: 3.54.0
       - run: task lint
       - run: task test
-      - run: task build:all
+      - run: task build:all VERSION=ci
 
   windows-export:
     runs-on: windows-latest
