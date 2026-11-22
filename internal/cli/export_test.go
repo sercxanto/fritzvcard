@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -46,6 +49,78 @@ func TestExport_WritesFile(t *testing.T) {
 		t.Fatalf("stderr: %q", stderr)
 	}
 	checkOut(t, out)
+}
+
+func TestExport_PrivateReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.xml")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run(t, "export", fixture, "-o", path, "--name", "X"); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	checkOut(t, path)
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("mode = %o, want 600", got)
+		}
+	}
+}
+
+func TestWriteExportFile_FailurePreservesTarget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.xml")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeErr := errors.New("synthetic write failure")
+	err := writeExportFile(path, func(w io.Writer) error {
+		if _, err := io.WriteString(w, "partial"); err != nil {
+			return err
+		}
+		return writeErr
+	})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("got %v, want %v", err, writeErr)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "original" {
+		t.Fatalf("original file: %q, %v", data, err)
+	}
+	checkOnlyEntry(t, dir, "out.xml", false)
+}
+
+func TestWriteExportFile_FailedRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeExportFile(path, func(w io.Writer) error {
+		_, err := io.WriteString(w, "complete")
+		return err
+	}); err == nil {
+		t.Fatal("replacing a directory succeeded")
+	}
+	checkOnlyEntry(t, dir, "target", true)
+}
+
+func checkOnlyEntry(t *testing.T, dir, name string, isDir bool) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != name || entries[0].IsDir() != isDir {
+		t.Fatalf("unexpected directory contents: %v", entries)
+	}
 }
 
 func TestExport_FlagsBeforeAndAfterFiles(t *testing.T) {

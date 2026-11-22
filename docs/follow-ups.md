@@ -24,7 +24,6 @@ non-blocking). Pick from here for future work; remove an item when it is done.
 - A declined prompt is reported as `error: aborted…` with exit 1.
 - Usage text: the `upload` line is not column-aligned.
 - `parseInterspersed` treats `--` as the separator even when it is a flag's value (`-o --`).
-- `export -o` writes with `os.WriteFile` (not atomic, mode 0644 although it holds contacts).
 - Backup wording differs: "Backup of the current phonebook" (stderr) vs "previous" (stdout).
 - The README console example shows `Converted…` (stderr) before the XML (stdout).
 - README: give the exact TR-064 menu path (Home Network → Network → Network Settings).

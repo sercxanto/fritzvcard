@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 
 	"fritzbook/internal/contacts"
 	"fritzbook/internal/fbxml"
@@ -43,7 +42,10 @@ func runExport(args []string, env Env) int {
 	if *out == "-" {
 		_, err = io.Copy(env.Stdout, &buf)
 	} else {
-		err = os.WriteFile(*out, buf.Bytes(), 0o644)
+		err = writeExportFile(*out, func(w io.Writer) error {
+			_, err := buf.WriteTo(w)
+			return err
+		})
 	}
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "fritzbook export: %v\n", err)
