@@ -100,13 +100,22 @@ Phonebook "Nextcloud" (ID 1, currently 12 entries) will be replaced by 2 contact
 ```
 
 `--yes` skips the question. After the import the tool exports the phonebook again and checks
-the contact count. On success it prints `Phonebook "Nextcloud" replaced: 2 contacts.` and exits
-with 0; errors exit with 1, usage errors with 2. If the upload fails, the path of the backup is
-printed.
+the contact count and the contact names. On success it prints `Phonebook "Nextcloud" replaced:
+2 contacts.` and the backup path and exits with 0; errors exit with 1, usage errors with 2. The
+path of the backup is printed to standard error as soon as it is written, before the question.
 
-If the box asks for a second-factor confirmation (a code on a phone or a button on the box),
-the tool waits for it up to `--timeout` (default 5 minutes). This is implemented but was NOT
-observed on the tested box, so it is untested against a real box.
+To restore the previous state, open the FRITZ!Box web interface, go to Telephony > Phonebook,
+select the phonebook and use the restore/import function with the `fritzbook-backup-*.xml`
+file. This should work the same way as importing a phonebook file via the web interface (the
+tool itself imports through the same endpoint), but the restore flow was not exercised on a
+real box. The phonebook is replaced as a whole: fields that `fritzbook` does not write are
+lost in the replaced phonebook and remain only in the backup. These are quick-dial and vanity
+numbers, the VIP category, ringtones, photos (`imageURL`) and `uniqueid`.
+
+If the box does not answer within 10 seconds, the tool prints a hint that it may be waiting
+for a second-factor confirmation (a code on a phone or a button on the box) and waits for it
+up to `--timeout` (default 5 minutes). This is implemented but was NOT observed on the tested
+box, so it is untested against a real box.
 
 Flags: `--phonebook <name>` (required), `--host` (default `http://fritz.box`), `--user`,
 `--backup-dir`, `--yes`, `--insecure` (skip TLS certificate verification, for https with a

@@ -43,7 +43,7 @@ func (e *ImportError) Error() string {
 // ConfirmFunc is called once when the box seems to wait for the second factor.
 type ConfirmFunc func(hint string)
 
-const defaultConfirmAfter = 3 * time.Second
+const defaultConfirmAfter = 10 * time.Second
 
 const tr064Hint = `enable "Allow access for applications" (Home Network > Network > Network Settings) on the FRITZ!Box and give the user the required permissions`
 

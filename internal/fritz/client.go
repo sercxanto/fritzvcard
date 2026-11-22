@@ -20,7 +20,7 @@ type Client struct {
 	SID      string
 
 	// ConfirmAfter is how long ImportPhonebook waits before it assumes the box wants a
-	// second factor and calls onConfirm; zero means 3 s. Tests shorten it.
+	// second factor and calls onConfirm; zero means 10 s. Tests shorten it.
 	ConfirmAfter time.Duration
 
 	user, password string
