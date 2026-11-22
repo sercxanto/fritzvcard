@@ -108,6 +108,18 @@ func TestParse_SkipsWithoutNumber(t *testing.T) {
 	}
 }
 
+func TestParse_EmptyNumbersAreDropped(t *testing.T) {
+	cs, sk := parseString(t, card("FN:Leer", "TEL:", "TEL;VALUE=uri:tel:", "TEL:  "))
+	if len(cs) != 0 || !reflect.DeepEqual(sk, []Skipped{{"Leer", "no phone number"}}) {
+		t.Fatalf("cs=%+v sk=%+v", cs, sk)
+	}
+	cs, sk = parseString(t, card("FN:Eine", "TEL;TYPE=pref:", "TEL;VALUE=uri:tel:", "TEL;TYPE=work:+49 30 1"))
+	want := []Number{{"+49 30 1", "work", true}}
+	if len(sk) != 0 || len(cs) != 1 || !reflect.DeepEqual(cs[0].Numbers, want) {
+		t.Fatalf("cs=%+v sk=%+v", cs, sk)
+	}
+}
+
 func TestParse_FoldedLineAndUmlauts(t *testing.T) {
 	cs, _, err := ParseFiles([]string{"../../testdata/vcf/nextcloud-v3.vcf"})
 	if err != nil || len(cs) != 2 {

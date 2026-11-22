@@ -111,6 +111,9 @@ func cardNumbers(card vcard.Card) []Number {
 		if len(value) >= 4 && strings.EqualFold(value[:4], "tel:") {
 			value = strings.TrimSpace(value[4:])
 		}
+		if value == "" {
+			continue
+		}
 		ts := types(f)
 		typ := "home"
 		switch {
