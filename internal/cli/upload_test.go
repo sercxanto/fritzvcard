@@ -455,11 +455,17 @@ func TestUpload_BackupNameCollision(t *testing.T) {
 	}
 }
 
-func TestUpload_PromptDoesNotConsumeTimeout(t *testing.T) {
+func TestUpload_TimeoutsAreIndependentOfSetupAndPrompt(t *testing.T) {
 	u := newUp(t)
-	u.stdinR = &slowReader{300 * time.Millisecond, "y\n"}
-	if code := u.run("--timeout", "250ms"); code != 0 {
+	setupTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { setupTimeout = 60 * time.Second })
+	u.stdinR = &slowReader{300 * time.Millisecond, "y\n"} // answered after the setup budget
+	u.box.ImportDelay = 250 * time.Millisecond            // import also outlasts it
+	if code := u.run("--timeout", "5s"); code != 0 {
 		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+	if !strings.Contains(u.stderr.String(), "(waiting up to 5s)") {
+		t.Errorf("hint: %q", u.stderr.String())
 	}
 }
 

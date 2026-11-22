@@ -22,9 +22,11 @@ import (
 	"fritzbook/internal/trace"
 )
 
-const (
-	setupTimeout  = 60 * time.Second // login, phonebook lookup and the backup export
-	verifyTimeout = 60 * time.Second // the verification export after an accepted import
+// setupTimeout bounds login, phonebook lookup and the backup export; verifyTimeout the
+// verification export after an accepted import. Variables so tests can shrink them.
+var (
+	setupTimeout  = 60 * time.Second
+	verifyTimeout = 60 * time.Second
 )
 
 // confirmAfter overrides Client.ConfirmAfter when non-zero; tests shorten it.
@@ -193,8 +195,7 @@ func (u *uploader) run(files []string) (err error) {
 		return err
 	}
 	// Export and import bodies hold the user's real contacts: never record them.
-	private := trace.OmitBody(ctx)
-	before, err := c.ExportPhonebook(private, pb.ID, pb.Name)
+	before, err := c.ExportPhonebook(trace.OmitBody(ctx), pb.ID, pb.Name)
 	if err != nil {
 		return fmt.Errorf("export of the current phonebook: %w", err)
 	}
@@ -219,6 +220,9 @@ func (u *uploader) run(files []string) (err error) {
 	onConfirm := func(string) {
 		fmt.Fprintf(u.env.Stderr, "The FRITZ!Box asks for confirmation: enter the code on a phone or press a button on the box (waiting up to %s)…\n", u.timeout)
 	}
+	// Fresh roots, not derived from the setup context: time spent at the prompt must not
+	// count against the import or verification budgets.
+	private := trace.OmitBody(context.Background())
 	ictx, icancel := context.WithTimeout(private, u.timeout)
 	defer icancel()
 	if err := c.ImportPhonebook(ictx, pb.ID, newXML, onConfirm); err != nil {
