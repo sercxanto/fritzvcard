@@ -26,6 +26,8 @@ xattr -d com.apple.quarantine fritzbook-darwin-arm64
 ```
 
 `fritzbook version` prints the version. The examples below call the binary `fritzbook`.
+Run `fritzbook --help` to list the commands. Use `fritzbook upload --help` or
+`fritzbook --help upload` to see the upload options and their defaults.
 
 ## Export contacts from Nextcloud
 

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io"
 
@@ -11,21 +10,16 @@ import (
 )
 
 func runExport(args []string, env Env) int {
-	fs := flag.NewFlagSet("export", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newCommandFlags("export", " [flags] <file.vcf>...", env.Stderr)
 	out := fs.String("o", "-", "output file (- for stdout)")
 	name := fs.String("name", "Nextcloud", "phonebook name")
-	fs.Usage = func() {
-		fmt.Fprintln(env.Stderr, "usage: fritzbook export [-o file] [--name name] <file.vcf>...")
-		fs.PrintDefaults()
-	}
-	files, err := parseInterspersed(fs, args)
+	files, err := parseInterspersed(fs.FlagSet, args)
 	if err != nil {
-		return 2
+		return fs.parseExit(err, env)
 	}
 	if len(files) == 0 {
 		fmt.Fprintln(env.Stderr, "fritzbook export: at least one .vcf file is required")
-		fs.Usage()
+		fs.writeHelp(env.Stderr)
 		return 2
 	}
 

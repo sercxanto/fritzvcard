@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -35,8 +34,7 @@ var (
 var waitHintAfter time.Duration
 
 func runUpload(args []string, env Env) int {
-	fs := flag.NewFlagSet("upload", flag.ContinueOnError)
-	fs.SetOutput(env.Stderr)
+	fs := newCommandFlags("upload", " --phonebook <name> [flags] <file.vcf>...\n(password: $FRITZBOX_PASSWORD or prompt)", env.Stderr)
 	pbName := fs.String("phonebook", "", "name of the phonebook to replace (required)")
 	host := fs.String("host", "http://fritz.box", "FRITZ!Box address")
 	user := fs.String("user", "", "FRITZ!Box user (default $FRITZBOX_USER)")
@@ -45,17 +43,13 @@ func runUpload(args []string, env Env) int {
 	timeout := fs.Duration("timeout", 5*time.Minute, "maximum time to wait for the import request")
 	insecure := fs.Bool("insecure", false, "skip TLS certificate verification")
 	verbose := fs.Bool("verbose", false, "print an anonymized request trace to stderr at exit")
-	fs.Usage = func() {
-		fmt.Fprintln(env.Stderr, "usage: fritzbook upload --phonebook <name> [flags] <file.vcf>...\n(password: $FRITZBOX_PASSWORD or prompt)")
-		fs.PrintDefaults()
-	}
-	files, err := parseInterspersed(fs, args)
+	files, err := parseInterspersed(fs.FlagSet, args)
 	if err != nil {
-		return 2
+		return fs.parseExit(err, env)
 	}
 	usageErr := func(msg string) int {
 		fmt.Fprintf(env.Stderr, "fritzbook upload: %s\n", msg)
-		fs.Usage()
+		fs.writeHelp(env.Stderr)
 		return 2
 	}
 	if *pbName == "" {

@@ -14,9 +14,7 @@ non-blocking). Pick from here for future work; remove an item when it is done.
 ## CLI
 
 - `export` prints `fritzbook export: <err>`, `upload` prints `error: <err>`: unify the prefixes.
-- `export -h` / `upload --help` exit with 2 (convention: 0).
 - A declined prompt is reported as `error: aborted…` with exit 1.
-- Usage text: the `upload` line is not column-aligned.
 - `parseInterspersed` treats `--` as the separator even when it is a flag's value (`-o --`).
 - Backup wording differs: "Backup of the current phonebook" (stderr) vs "previous" (stdout).
 - The README console example shows `Converted…` (stderr) before the XML (stdout).

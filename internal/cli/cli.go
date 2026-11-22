@@ -25,9 +25,11 @@ type Env struct {
 const usage = `usage: fritzbook <command> [arguments]
 
 commands:
-  export <file.vcf>...   convert vCard files to FRITZ!Box phonebook XML
-  upload --phonebook <name> <file.vcf>...   replace a FRITZ!Box phonebook (with backup)
-  version                print the version
+  export   convert vCard files to FRITZ!Box phonebook XML
+  upload   replace a named FRITZ!Box phonebook (with backup)
+  version  print the version
+
+For command options, use either order: fritzbook upload --help or fritzbook --help upload.
 `
 
 // Run executes the command in args and returns the exit code:
@@ -38,15 +40,34 @@ func Run(args []string, env Env) int {
 		return 2
 	}
 	switch args[0] {
+	case "help", "-h", "--help":
+		switch len(args) {
+		case 1:
+			fmt.Fprint(env.Stdout, usage)
+			return 0
+		case 2:
+			args = []string{args[1], "--help"}
+		default:
+			fmt.Fprint(env.Stderr, usage)
+			return 2
+		}
+	}
+	switch args[0] {
 	case "export":
 		return runExport(args[1:], env)
 	case "upload":
 		return runUpload(args[1:], env)
 	case "version":
+		fs := newCommandFlags("version", "", env.Stderr)
+		rest, err := parseInterspersed(fs.FlagSet, args[1:])
+		if err != nil {
+			return fs.parseExit(err, env)
+		}
+		if len(rest) != 0 {
+			fs.writeHelp(env.Stderr)
+			return 2
+		}
 		fmt.Fprintf(env.Stdout, "fritzbook %s\n", Version)
-		return 0
-	case "help", "-h", "--help":
-		fmt.Fprint(env.Stdout, usage)
 		return 0
 	default:
 		fmt.Fprintf(env.Stderr, "fritzbook: unknown command %q\n\n%s", args[0], usage)
