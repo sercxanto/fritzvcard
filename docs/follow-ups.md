@@ -9,8 +9,6 @@ non-blocking). Pick from here for future work; remove an item when it is done.
   asked for a confirmation. `ImportPhonebook` assumes the import request stays pending until
   the user confirms and calls the hint after 10 s. A probe round on a box with the second
   factor enabled would settle this (see "Probe findings" in the implementation plan).
-- **Restore flow is untested on a real box.** README describes restoring the backup via the
-  web UI; nobody has done it from a `fritzbook-backup-*.xml`.
 - **Name check may reject a good upload.** After an import, `upload` requires the exported
   names to equal the uploaded ones (multiset). If a box normalizes names (truncation,
   whitespace, control characters, Unicode normalization), it reports a mismatch although the

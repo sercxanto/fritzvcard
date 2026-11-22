@@ -4,3 +4,6 @@ fritzbook-backup-*.xml
 
 # raw probe recordings stay out of git until reviewed
 /fritzprobe-*.txt
+
+# DevContainer feature lock file stays local
+.devcontainer/devcontainer-lock.json

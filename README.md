@@ -106,9 +106,8 @@ path of the backup is printed to standard error as soon as it is written, before
 
 To restore the previous state, open the FRITZ!Box web interface, go to Telephony > Phonebook,
 select the phonebook and use the restore/import function with the `fritzbook-backup-*.xml`
-file. This should work the same way as importing a phonebook file via the web interface (the
-tool itself imports through the same endpoint), but the restore flow was not exercised on a
-real box. The phonebook is replaced as a whole: fields that `fritzbook` does not write are
+file. This worked on the tested box (FRITZ!Box 6690 Cable, FRITZ!OS 267.08.25) with a backup
+created from test data. The phonebook is replaced as a whole: fields that `fritzbook` does not write are
 lost in the replaced phonebook and remain only in the backup. These are quick-dial and vanity
 numbers, the VIP category, ringtones, photos (`imageURL`) and `uniqueid`.
 
