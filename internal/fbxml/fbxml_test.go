@@ -3,6 +3,7 @@ package fbxml
 import (
 	"bytes"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestWrite_EscapesSpecialChars(t *testing.T) {
 		t.Errorf("services should be omitted:\n%s", buf.String())
 	}
 	info, err := Inspect(&buf)
-	if err != nil || info != (Info{"Nextcloud", 1}) {
+	if err != nil || info.Name != "Nextcloud" || info.Contacts != 1 || !reflect.DeepEqual(info.Names, []string{c.Name}) {
 		t.Errorf("info=%+v err=%v", info, err)
 	}
 }
@@ -55,10 +56,26 @@ func TestInspect_BoxExport(t *testing.T) {
 <contact><person><realName>C</realName></person></contact>
 </phonebook></phonebooks>`
 	info, err := Inspect(strings.NewReader(x))
-	if err != nil || info != (Info{"Test", 3}) {
+	if err != nil || info.Name != "Test" || info.Contacts != 3 || !reflect.DeepEqual(info.Names, []string{"A", "B", "C"}) {
 		t.Errorf("info=%+v err=%v", info, err)
 	}
 	if _, err := Inspect(strings.NewReader("<phonebooks><phonebook")); err == nil {
 		t.Error("want error for malformed XML")
+	}
+}
+
+func TestInspect_NamesOnlyFromTopLevelContacts(t *testing.T) {
+	const x = `<phonebooks><phonebook name="T">
+<contact><person><realName> Dup &amp; Co </realName></person><telephony><number>1</number></telephony></contact>
+<contact><person><realName>Dup &amp; Co</realName></person></contact>
+<contact><person></person></contact>
+<other><x><realName>ignored</realName></x></other>
+</phonebook></phonebooks>`
+	info, err := Inspect(strings.NewReader(x))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Contacts != 3 || !reflect.DeepEqual(info.Names, []string{"Dup & Co", "Dup & Co", ""}) {
+		t.Errorf("info=%+v", info)
 	}
 }
