@@ -26,6 +26,7 @@ const usage = `usage: fritzbook <command> [arguments]
 
 commands:
   export <file.vcf>...   convert vCard files to FRITZ!Box phonebook XML
+  upload --phonebook <name> <file.vcf>...   replace a FRITZ!Box phonebook (with backup)
   version                print the version
 `
 
@@ -39,6 +40,8 @@ func Run(args []string, env Env) int {
 	switch args[0] {
 	case "export":
 		return runExport(args[1:], env)
+	case "upload":
+		return runUpload(args[1:], env)
 	case "version":
 		fmt.Fprintf(env.Stdout, "fritzbook %s\n", Version)
 		return 0
