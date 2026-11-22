@@ -16,7 +16,7 @@
 - Only third-party deps: `github.com/emersion/go-vcard v0.1.0`, `golang.org/x/term v0.48.0`. Anything else needs the human's OK.
 - Targets: linux/amd64, linux/arm64, darwin/arm64, darwin/amd64, windows/amd64.
 - All repository files (code, comments, docs, commit messages) and all CLI output in English.
-- **Agents never contact a FRITZ!Box or any other device on the local network**, never ask for or handle real credentials, and work only with anonymized recordings under `testdata/probe/`. When real-box behavior is needed, ask the human to run the probe.
+- **Agents never contact a FRITZ!Box or any other device on the local network**, never ask for or handle real credentials, and work only with anonymized material (the "Probe findings" below and reviewed recordings the human shares). When real-box behavior is needed, ask the human to run the probe.
 - Password only from `FRITZBOX_PASSWORD` or an echo-less prompt. No `--password` flag. Never written to disk or logs.
 - Login only via `login_sid.lua?version=2` (PBKDF2). A non-`2$` challenge is an error ("FRITZ!OS 7.24 or newer required"), no MD5 fallback.
 - Phonebook writes only via `POST /cgi-bin/firmwarecfg` (multipart `sid`, `PhonebookId`, `PhonebookImportFile`). TR-064 is used read-only.
