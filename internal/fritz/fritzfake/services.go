@@ -242,6 +242,14 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id, _ := strconv.Atoi(string(vals["PhonebookId"]))
+	if b.ImportIgnored {
+		b.mu.Lock()
+		b.imports = append(b.imports, id)
+		b.mu.Unlock()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(w, "<html><body>Import successful</body></html>")
+		return
+	}
 	if b.ImportTarget != nil {
 		id = *b.ImportTarget
 	}

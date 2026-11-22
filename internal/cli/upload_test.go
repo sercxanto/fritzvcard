@@ -285,6 +285,10 @@ func TestUpload_FailureMentionsBackup(t *testing.T) {
 		{"import rejected", func(u *upEnv) { u.box.ImportStatus = 500 }, nil, "rejected the import"},
 		{"confirmation timeout", func(u *upEnv) { u.box.HoldImport = make(chan struct{}) }, []string{"--timeout", "1s"}, "was not given in time"},
 		{"count mismatch", func(u *upEnv) { u.box.ImportAppends = true }, nil, "count mismatch"},
+		{"import ignored, same count", func(u *upEnv) {
+			u.box.Phonebooks[1].XML = []byte(twoNamesXML)
+			u.box.ImportIgnored = true
+		}, nil, "does not match the upload"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -301,13 +305,75 @@ func TestUpload_FailureMentionsBackup(t *testing.T) {
 			if !strings.Contains(se, "error: ") || !strings.Contains(se, tt.want) {
 				t.Errorf("stderr %q lacks %q", se, tt.want)
 			}
-			if !strings.Contains(se, "Backup of the previous phonebook: "+b[0]) {
-				t.Errorf("stderr %q lacks backup path", se)
+			if n := strings.Count(se, "Backup of the current phonebook: "+b[0]); n != 1 {
+				t.Errorf("stderr %q: backup path printed %d times, want 1", se, n)
 			}
 			if !u.box.WasLoggedOut() {
 				t.Error("no logout")
 			}
 		})
+	}
+}
+
+const twoNamesXML = `<phonebooks><phonebook name="Nextcloud"><contact><person><realName>Old One</realName></person></contact><contact><person><realName>Old Two</realName></person></contact></phonebook></phonebooks>`
+
+func TestUpload_IgnoredImportReportsDifferingNames(t *testing.T) {
+	u := newUp(t)
+	u.box.Phonebooks[1].XML = []byte(twoNamesXML)
+	u.box.ImportIgnored = true
+	if code := u.run("--yes"); code != 1 {
+		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+	if se := u.stderr.String(); !strings.Contains(se, "the import was accepted but the phonebook does not match the upload (2 of 2 names differ)") {
+		t.Errorf("stderr %q", se)
+	}
+	if strings.Contains(u.stdout.String(), "replaced") {
+		t.Errorf("stdout %q", u.stdout.String())
+	}
+}
+
+func TestUpload_DuplicateNamesMultiset(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "dup.vcf")
+	vcf := "BEGIN:VCARD\nVERSION:3.0\nFN:Same Name\nTEL:+49301111\nEND:VCARD\nBEGIN:VCARD\nVERSION:3.0\nFN:Same Name\nTEL:+49302222\nEND:VCARD\n"
+	if err := os.WriteFile(f, []byte(vcf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	u := newUp(t)
+	u.files = []string{f}
+	if code := u.run("--yes"); code != 0 {
+		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+}
+
+func TestUpload_BackupPathPrintedBeforePromptAndOnSuccess(t *testing.T) {
+	u := newUp(t)
+	u.stdin = "y\n"
+	if code := u.run(); code != 0 {
+		t.Fatalf("exit %d: %s", code, u.stderr.String())
+	}
+	b := u.backups(t)[0]
+	line := "Backup of the current phonebook: " + b
+	se := u.stderr.String()
+	i, j := strings.Index(se, line), strings.Index(se, "Continue?")
+	if i < 0 || j < 0 || i > j {
+		t.Errorf("backup line not before the prompt: %q", se)
+	}
+	if !strings.Contains(u.stdout.String(), b) {
+		t.Errorf("stdout %q lacks the backup path", u.stdout.String())
+	}
+}
+
+func TestWriteBackup_RemovesPartialFileOnSyncError(t *testing.T) {
+	old := backupSync
+	backupSync = func(*os.File) error { return errors.New("disk full") }
+	t.Cleanup(func() { backupSync = old })
+	dir := t.TempDir()
+	if _, err := writeBackup(dir, "X", time.Now(), []byte("data")); err == nil {
+		t.Fatal("want error")
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, "*")); len(m) != 0 {
+		t.Errorf("partial backup left behind: %v", m)
 	}
 }
 
@@ -317,7 +383,7 @@ func TestUpload_ConfirmationHint(t *testing.T) {
 	if code := u.run("--yes"); code != 0 {
 		t.Fatalf("exit %d: %s", code, u.stderr.String())
 	}
-	if !strings.Contains(u.stderr.String(), "The FRITZ!Box asks for confirmation") {
+	if !strings.Contains(u.stderr.String(), "No answer from the FRITZ!Box yet. If it asks for confirmation") {
 		t.Errorf("stderr %q", u.stderr.String())
 	}
 }
@@ -530,7 +596,7 @@ func TestUpload_VerificationExportFails(t *testing.T) {
 	}
 	se := u.stderr.String()
 	b := u.backups(t)
-	if len(u.box.Imports()) != 1 || len(b) != 1 || !strings.Contains(se, "import was accepted but could not be verified") || !strings.Contains(se, "Backup of the previous phonebook: "+b[0]) {
+	if len(u.box.Imports()) != 1 || len(b) != 1 || !strings.Contains(se, "import was accepted but could not be verified") || !strings.Contains(se, "Backup of the current phonebook: "+b[0]) {
 		t.Errorf("stderr %q", se)
 	}
 }

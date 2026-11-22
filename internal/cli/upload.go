@@ -92,9 +92,6 @@ func runUpload(args []string, env Env) int {
 	err = u.run(files)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "error: %s\n", oneLine(err.Error()))
-		if u.backupPath != "" {
-			fmt.Fprintf(env.Stderr, "Backup of the previous phonebook: %s\n", u.backupPath)
-		}
 		return 1
 	}
 	return 0
@@ -208,6 +205,7 @@ func (u *uploader) run(files []string) (err error) {
 		return fmt.Errorf("write backup: %w", err)
 	}
 	u.backupPath = path
+	fmt.Fprintf(u.env.Stderr, "Backup of the current phonebook: %s\n", path)
 
 	if !u.yes {
 		fmt.Fprintf(u.env.Stderr, "Phonebook %q (ID %d, currently %d entries) will be replaced by %d contacts. Continue? [y/N] ", pb.Name, pb.ID, cur.Contacts, m)
@@ -218,7 +216,7 @@ func (u *uploader) run(files []string) (err error) {
 	}
 
 	onConfirm := func(string) {
-		fmt.Fprintf(u.env.Stderr, "The FRITZ!Box asks for confirmation: enter the code on a phone or press a button on the box (waiting up to %s)…\n", u.timeout)
+		fmt.Fprintf(u.env.Stderr, "No answer from the FRITZ!Box yet. If it asks for confirmation, enter the code on a phone or press a button on the box (waiting up to %s)…\n", u.timeout)
 	}
 	// Fresh roots, not derived from the setup context: time spent at the prompt must not
 	// count against the import or verification budgets.
@@ -241,9 +239,32 @@ func (u *uploader) run(files []string) (err error) {
 	if got.Contacts != m {
 		return fmt.Errorf("count mismatch: uploaded %d contacts but the phonebook now holds %d", m, got.Contacts)
 	}
-	fmt.Fprintf(u.env.Stdout, "Phonebook %q replaced: %d contacts.\n", pb.Name, m)
+	if d := nameDiff(info.Names, got.Names); d > 0 {
+		return fmt.Errorf("the import was accepted but the phonebook does not match the upload (%d of %d names differ)", d, m)
+	}
+	fmt.Fprintf(u.env.Stdout, "Phonebook %q replaced: %d contacts. Backup of the previous phonebook: %s\n", pb.Name, m, path)
 	return nil
 }
+
+// nameDiff counts the names of want that are missing from got, comparing as multisets.
+func nameDiff(want, got []string) int {
+	have := map[string]int{}
+	for _, n := range got {
+		have[n]++
+	}
+	d := 0
+	for _, n := range want {
+		if have[n] > 0 {
+			have[n]--
+		} else {
+			d++
+		}
+	}
+	return d
+}
+
+// backupSync flushes the backup file; a variable so tests can simulate a failure.
+var backupSync = func(f *os.File) error { return f.Sync() }
 
 // writeBackup creates the backup exclusively with mode 0600 and syncs it. If the name is
 // taken (same second), -2, -3, ... is appended; it never overwrites an existing backup.
@@ -264,12 +285,13 @@ func writeBackup(dir, phonebook string, now time.Time, data []byte) (string, err
 		}
 		_, err = f.Write(data)
 		if err == nil {
-			err = f.Sync()
+			err = backupSync(f)
 		}
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
 		if err != nil {
+			os.Remove(path) // never leave a partial backup that looks usable
 			return "", err
 		}
 		return path, nil
