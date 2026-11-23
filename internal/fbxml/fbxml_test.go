@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"fritzbook/internal/contacts"
+	"fritzvcard/internal/contacts"
 )
 
 var erika = contacts.Contact{

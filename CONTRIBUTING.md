@@ -1,6 +1,6 @@
-# Contributing to fritzbook
+# Contributing to fritzvcard
 
-`fritzbook` is a Go command-line tool that converts vCard files into FRITZ!Box phonebook XML.
+`fritzvcard` is a Go command-line tool that converts vCard files into FRITZ!Box phonebook XML.
 This file is the single source of truth for developers, human and agent alike.
 
 ## Dev setup
@@ -37,8 +37,8 @@ Builds and checks run through [Task](https://taskfile.dev) (`task --list`).
 
 | Task | What it does |
 |---|---|
-| `task build` | Builds `dist/fritzbook` for the host platform |
-| `task build:all` | Cross-compiles `dist/fritzbook-<os>-<arch>[.exe]` |
+| `task build` | Builds `dist/fritzvcard` for the host platform |
+| `task build:all` | Cross-compiles `dist/fritzvcard-<os>-<arch>[.exe]` |
 | `task test` | Runs `go test ./...` |
 | `task lint` | Runs `go vet ./...` and fails if `gofmt -l .` reports files |
 | `task probe` | Builds `dist/fritzprobe` (default `GOOS=darwin GOARCH=arm64`, override via vars) |
@@ -52,7 +52,7 @@ Some of these files are created by later tasks.
 Taskfile.yml                      build, build:all, test, lint, probe
 AGENTS.md / CLAUDE.md             agent rules (CLAUDE.md = "@AGENTS.md")
 CONTRIBUTING.md / README.md / LICENSE
-cmd/fritzbook/main.go             wires os.* into cli.Run
+cmd/fritzvcard/main.go            wires os.* into cli.Run
 cmd/fritzprobe/main.go            probe program (human runs it on the Mac)
 internal/contacts/                vCard → Contact model
 internal/fbxml/                   Contact model → FRITZ!Box XML; inspect XML
@@ -127,8 +127,8 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
 
 1. Make sure `task lint` and `task test` pass on the commit to release.
 2. Optional local check: `task build:all VERSION=vX.Y.Z` writes the five binaries to `dist/`
-   (`fritzbook-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64`,
-   `-windows-amd64.exe`); `dist/fritzbook-linux-amd64 version` (on Linux) prints the version.
+    (`fritzvcard-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64`,
+    `-windows-amd64.exe`); `dist/fritzvcard-linux-amd64 version` (on Linux) prints the version.
 3. The human creates the GitHub repository (once) and pushes a tag `vX.Y.Z`:
 
    ```sh

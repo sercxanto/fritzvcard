@@ -49,7 +49,7 @@ func (c *Client) importRaw(ctx context.Context, id int, xml []byte, noRedirect b
 		return 0, nil, err
 	}
 	h := textproto.MIMEHeader{}
-	h.Set("Content-Disposition", `form-data; name="PhonebookImportFile"; filename="fritzbook.xml"`)
+	h.Set("Content-Disposition", `form-data; name="PhonebookImportFile"; filename="fritzvcard.xml"`)
 	h.Set("Content-Type", "text/xml")
 	part, err := mw.CreatePart(h)
 	if err != nil {

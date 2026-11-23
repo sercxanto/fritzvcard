@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"fritzbook/internal/fritz/fritzfake"
+	"fritzvcard/internal/fritz/fritzfake"
 )
 
 const privatXML = `<?xml version="1.0"?><phonebooks><phonebook name="Privat"><contact><person><realName>Secret Person</realName></person><telephony><number type="home">+49 30 5551234</number></telephony></contact></phonebook></phonebooks>`

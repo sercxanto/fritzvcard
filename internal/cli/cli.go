@@ -1,4 +1,4 @@
-// Package cli implements the fritzbook command-line interface.
+// Package cli implements the fritzvcard command-line interface.
 package cli
 
 import (
@@ -22,14 +22,14 @@ type Env struct {
 	HTTPClient   *http.Client // nil means default; tests inject a fake transport
 }
 
-const usage = `usage: fritzbook <command> [arguments]
+const usage = `usage: fritzvcard <command> [arguments]
 
 commands:
   export   convert vCard files to FRITZ!Box phonebook XML
   upload   replace a named FRITZ!Box phonebook (with backup)
   version  print the version
 
-For command options, use either order: fritzbook upload --help or fritzbook --help upload.
+For command options, use either order: fritzvcard upload --help or fritzvcard --help upload.
 `
 
 // Run executes the command in args and returns the exit code:
@@ -67,10 +67,10 @@ func Run(args []string, env Env) int {
 			fs.writeHelp(env.Stderr)
 			return 2
 		}
-		fmt.Fprintf(env.Stdout, "fritzbook %s\n", Version)
+		fmt.Fprintf(env.Stdout, "fritzvcard %s\n", Version)
 		return 0
 	default:
-		fmt.Fprintf(env.Stderr, "fritzbook: unknown command %q\n\n%s", args[0], usage)
+		fmt.Fprintf(env.Stderr, "fritzvcard: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
 }

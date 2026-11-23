@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"fritzbook/internal/contacts"
-	"fritzbook/internal/fbxml"
+	"fritzvcard/internal/contacts"
+	"fritzvcard/internal/fbxml"
 )
 
 func runExport(args []string, env Env) int {
@@ -18,19 +18,19 @@ func runExport(args []string, env Env) int {
 		return fs.parseExit(err, env)
 	}
 	if len(files) == 0 {
-		fmt.Fprintln(env.Stderr, "fritzbook export: at least one .vcf file is required")
+		fmt.Fprintln(env.Stderr, "fritzvcard export: at least one .vcf file is required")
 		fs.writeHelp(env.Stderr)
 		return 2
 	}
 
 	cs, skipped, err := contacts.ParseFiles(files)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "fritzbook export: %v\n", err)
+		fmt.Fprintf(env.Stderr, "fritzvcard export: %v\n", err)
 		return 1
 	}
 	var buf bytes.Buffer
 	if err := fbxml.Write(&buf, *name, cs); err != nil {
-		fmt.Fprintf(env.Stderr, "fritzbook export: %v\n", err)
+		fmt.Fprintf(env.Stderr, "fritzvcard export: %v\n", err)
 		return 1
 	}
 	if *out == "-" {
@@ -42,7 +42,7 @@ func runExport(args []string, env Env) int {
 		})
 	}
 	if err != nil {
-		fmt.Fprintf(env.Stderr, "fritzbook export: %v\n", err)
+		fmt.Fprintf(env.Stderr, "fritzvcard export: %v\n", err)
 		return 1
 	}
 

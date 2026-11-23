@@ -34,8 +34,8 @@ jobs:
       - name: Publish release binaries
         run: |
           gh release create "$VERSION" --verify-tag --generate-notes \
-            dist/fritzbook-linux-amd64 dist/fritzbook-linux-arm64 \
-            dist/fritzbook-darwin-amd64 dist/fritzbook-darwin-arm64 \
-            dist/fritzbook-windows-amd64.exe
+            dist/fritzvcard-linux-amd64 dist/fritzvcard-linux-arm64 \
+            dist/fritzvcard-darwin-amd64 dist/fritzvcard-darwin-arm64 \
+            dist/fritzvcard-windows-amd64.exe
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -10,19 +10,19 @@ env:
 
 tasks:
   build:
-    desc: Build fritzbook for the host platform into dist/fritzbook
+    desc: Build fritzvcard for the host platform into dist/fritzvcard
     cmds:
-      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/fritzbook ./cmd/fritzbook
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/fritzvcard ./cmd/fritzvcard
 
   build:all:
-    desc: Cross-compile fritzbook into dist/fritzbook-<os>-<arch>[.exe]
+    desc: Cross-compile fritzvcard into dist/fritzvcard-<os>-<arch>[.exe]
     cmds:
       - for: ['linux/amd64', 'linux/arm64', 'darwin/amd64', 'darwin/arm64', 'windows/amd64']
         cmd: >-
           GOOS={{splitList "/" .ITEM | first}} GOARCH={{splitList "/" .ITEM | last}}
           go build -trimpath -ldflags "{{.LDFLAGS}}"
-          -o dist/fritzbook-{{splitList "/" .ITEM | first}}-{{splitList "/" .ITEM | last}}{{if eq (splitList "/" .ITEM | first) "windows"}}.exe{{end}}
-          ./cmd/fritzbook
+          -o dist/fritzvcard-{{splitList "/" .ITEM | first}}-{{splitList "/" .ITEM | last}}{{if eq (splitList "/" .ITEM | first) "windows"}}.exe{{end}}
+          ./cmd/fritzvcard
 
   test:
     desc: Run all tests

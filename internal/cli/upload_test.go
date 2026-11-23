@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"fritzbook/internal/fbxml"
-	"fritzbook/internal/fritz/fritzfake"
+	"fritzvcard/internal/fbxml"
+	"fritzvcard/internal/fritz/fritzfake"
 )
 
 const beforeXML = `<?xml version="1.0" encoding="utf-8"?><phonebooks><phonebook name="Nextcloud"><contact><person><realName>Old Person</realName></person></contact></phonebook></phonebooks>`
@@ -110,7 +110,7 @@ func (u *upEnv) run(args ...string) int {
 }
 
 func (u *upEnv) backups(t *testing.T) []string {
-	m, _ := filepath.Glob(filepath.Join(u.dir, "fritzbook-backup-*.xml"))
+	m, _ := filepath.Glob(filepath.Join(u.dir, "fritzvcard-backup-*.xml"))
 	return m
 }
 
@@ -131,7 +131,7 @@ func TestUpload_Success(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, u.stderr.String())
 	}
 	b := u.backups(t)
-	if len(b) != 1 || !strings.HasSuffix(b[0], "fritzbook-backup-Nextcloud-20260102-030405.xml") {
+	if len(b) != 1 || !strings.HasSuffix(b[0], "fritzvcard-backup-Nextcloud-20260102-030405.xml") {
 		t.Fatalf("backups %v", b)
 	}
 	data, _ := os.ReadFile(b[0])

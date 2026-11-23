@@ -1,11 +1,11 @@
-# fritzbook
+# fritzvcard
 
-`fritzbook` converts vCard (`.vcf`) files, for example a Nextcloud address book export, into a
+`fritzvcard` converts vCard (`.vcf`) files, for example a Nextcloud address book export, into a
 FRITZ!Box phonebook and can upload the result to the box. It is a single binary without
 runtime dependencies.
 
 Why it exists: Nextcloud does not need your FRITZ!Box credentials, and the FRITZ!Box does not
-need to be reachable from Nextcloud. You run `fritzbook` on your own computer inside your home
+need to be reachable from Nextcloud. You run `fritzvcard` on your own computer inside your home
 network, so no credentials are stored on the box or on a server.
 
 Upload was tested with a separately created phonebook on a FRITZ!Box 6690 Cable
@@ -14,20 +14,20 @@ Upload was tested with a separately created phonebook on a FRITZ!Box 6690 Cable
 ## Installation
 
 Download the binary for your system from the
-[Releases](../../releases) page. Assets are named `fritzbook-<os>-<arch>[.exe]`, for example
-`fritzbook-linux-amd64`, `fritzbook-darwin-arm64` or `fritzbook-windows-amd64.exe`
+[Releases](../../releases) page. Assets are named `fritzvcard-<os>-<arch>[.exe]`, for example
+`fritzvcard-linux-amd64`, `fritzvcard-darwin-arm64` or `fritzvcard-windows-amd64.exe`
 (operating systems: linux, darwin = macOS, windows; architectures: amd64, arm64).
 
-Make it executable on Linux and macOS (`chmod +x fritzbook-darwin-arm64`). macOS blocks
+Make it executable on Linux and macOS (`chmod +x fritzvcard-darwin-arm64`). macOS blocks
 downloaded binaries; remove the quarantine flag once:
 
 ```sh
-xattr -d com.apple.quarantine fritzbook-darwin-arm64
+xattr -d com.apple.quarantine fritzvcard-darwin-arm64
 ```
 
-`fritzbook version` prints the version. The examples below call the binary `fritzbook`.
-Run `fritzbook --help` to list the commands. Use `fritzbook upload --help` or
-`fritzbook --help upload` to see the upload options and their defaults.
+`fritzvcard version` prints the version. The examples below call the binary `fritzvcard`.
+Run `fritzvcard --help` to list the commands. Use `fritzvcard upload --help` or
+`fritzvcard --help upload` to see the upload options and their defaults.
 
 ## Export contacts from Nextcloud
 
@@ -37,14 +37,14 @@ This gives you a `.vcf` file.
 ## Convert to XML: `export`
 
 ```sh
-fritzbook export [-o file] [--name name] <file.vcf>...
+fritzvcard export [-o file] [--name name] <file.vcf>...
 ```
 
 `-o` is the output file (default `-`, standard output); `--name` is the phonebook name
 (default `Nextcloud`). You can pass several `.vcf` files. A summary goes to standard error.
 
 ```console
-$ fritzbook export contacts.vcf
+$ fritzvcard export contacts.vcf
 Converted 2 contacts (3 numbers).
 <?xml version="1.0" encoding="utf-8"?>
 <phonebooks>
@@ -88,14 +88,14 @@ Warning: the upload REPLACES the content of the target phonebook completely.
 ```sh
 export FRITZBOX_USER=phonebook
 export FRITZBOX_PASSWORD=...          # optional; otherwise you are prompted
-fritzbook upload --phonebook Nextcloud contacts.vcf
+fritzvcard upload --phonebook Nextcloud contacts.vcf
 ```
 
 The password is read from `FRITZBOX_PASSWORD` or from an echo-less prompt, never from a flag.
 The user comes from `--user` or `FRITZBOX_USER`.
 
-Before uploading, `fritzbook` exports the current phonebook into a backup file
-(`fritzbook-backup-*.xml`, mode 0600) in `--backup-dir` (default: the current directory), then
+Before uploading, `fritzvcard` exports the current phonebook into a backup file
+(`fritzvcard-backup-*.xml`, mode 0600) in `--backup-dir` (default: the current directory), then
 asks for confirmation:
 
 ```
@@ -109,9 +109,9 @@ order may differ; repeated entries must occur the same number of times. On succe
 path of the backup is printed to standard error as soon as it is written, before the question.
 
 To restore the previous state, open the FRITZ!Box web interface, go to Telephony > Phonebook,
-select the phonebook and use the restore/import function with the `fritzbook-backup-*.xml`
+select the phonebook and use the restore/import function with the `fritzvcard-backup-*.xml`
 file. Restore was tested on the separately created phonebook using a backup of test data.
-The phonebook is replaced as a whole: fields that `fritzbook` does not write are
+The phonebook is replaced as a whole: fields that `fritzvcard` does not write are
 lost in the replaced phonebook and remain only in the backup. These are quick-dial and vanity
 numbers, the VIP category, ringtones, photos (`imageURL`) and `uniqueid`.
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"fritzbook/internal/fritz"
-	"fritzbook/internal/fritz/fritzfake"
+	"fritzvcard/internal/fritz"
+	"fritzvcard/internal/fritz/fritzfake"
 )
 
 func newClient(t *testing.T, b *fritzfake.Box) *fritz.Client {

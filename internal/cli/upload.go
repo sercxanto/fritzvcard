@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"fritzbook/internal/contacts"
-	"fritzbook/internal/fbxml"
-	"fritzbook/internal/fritz"
-	"fritzbook/internal/trace"
+	"fritzvcard/internal/contacts"
+	"fritzvcard/internal/fbxml"
+	"fritzvcard/internal/fritz"
+	"fritzvcard/internal/trace"
 )
 
 // setupTimeout bounds login, phonebook lookup and the backup export; verifyTimeout the
@@ -48,7 +48,7 @@ func runUpload(args []string, env Env) int {
 		return fs.parseExit(err, env)
 	}
 	usageErr := func(msg string) int {
-		fmt.Fprintf(env.Stderr, "fritzbook upload: %s\n", msg)
+		fmt.Fprintf(env.Stderr, "fritzvcard upload: %s\n", msg)
 		fs.writeHelp(env.Stderr)
 		return 2
 	}
@@ -285,7 +285,7 @@ var backupSync = func(f *os.File) error { return f.Sync() }
 // writeBackup creates the backup exclusively with mode 0600 and syncs it. If the name is
 // taken (same second), -2, -3, ... is appended; it never overwrites an existing backup.
 func writeBackup(dir, phonebook string, now time.Time, data []byte) (string, error) {
-	base := fmt.Sprintf("fritzbook-backup-%s-%s", safeName(phonebook), now.Format("20060102-150405"))
+	base := fmt.Sprintf("fritzvcard-backup-%s-%s", safeName(phonebook), now.Format("20060102-150405"))
 	for i := 1; i <= 99; i++ {
 		name := base + ".xml"
 		if i > 1 {

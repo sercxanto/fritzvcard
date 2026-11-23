@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"fritzbook/internal/fbxml"
+	"fritzvcard/internal/fbxml"
 )
 
 func TestHelpForms(t *testing.T) {
 	for _, arg := range []string{"--help", "-h"} {
 		code, out, stderr := run(t, arg)
-		if code != 0 || stderr != "" || !strings.Contains(out, "fritzbook upload --help") || !strings.Contains(out, "fritzbook --help upload") {
+		if code != 0 || stderr != "" || !strings.Contains(out, "fritzvcard upload --help") || !strings.Contains(out, "fritzvcard --help upload") {
 			t.Errorf("%s: exit %d, stdout %q, stderr %q", arg, code, out, stderr)
 		}
 	}
@@ -26,7 +26,7 @@ func TestHelpForms(t *testing.T) {
 			var page string
 			for i, args := range [][]string{{tc.cmd, "--help"}, {"--help", tc.cmd}, {tc.cmd, "-h"}} {
 				code, out, stderr := run(t, args...)
-				if code != 0 || stderr != "" || !strings.HasPrefix(out, "usage: fritzbook "+tc.cmd) || strings.Count(out, "usage:") != 1 {
+				if code != 0 || stderr != "" || !strings.HasPrefix(out, "usage: fritzvcard "+tc.cmd) || strings.Count(out, "usage:") != 1 {
 					t.Fatalf("%v: exit %d, stdout %q, stderr %q", args, code, out, stderr)
 				}
 				if i > 0 && out != page {

@@ -22,10 +22,10 @@ import (
 
 	"golang.org/x/term"
 
-	"fritzbook/internal/contacts"
-	"fritzbook/internal/fbxml"
-	"fritzbook/internal/fritz"
-	"fritzbook/internal/trace"
+	"fritzvcard/internal/contacts"
+	"fritzvcard/internal/fbxml"
+	"fritzvcard/internal/fritz"
+	"fritzvcard/internal/trace"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".

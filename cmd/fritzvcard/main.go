@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/term"
 
-	"fritzbook/internal/cli"
+	"fritzvcard/internal/cli"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".

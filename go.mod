@@ -1,4 +1,4 @@
-module fritzbook
+module fritzvcard
 
 go 1.27
 

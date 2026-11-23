@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"fritzbook/internal/fritz"
+	"fritzvcard/internal/fritz"
 )
 
 const (

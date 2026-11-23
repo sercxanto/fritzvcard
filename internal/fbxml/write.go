@@ -5,7 +5,7 @@ import (
 	"encoding/xml"
 	"io"
 
-	"fritzbook/internal/contacts"
+	"fritzvcard/internal/contacts"
 )
 
 type phonebooks struct {

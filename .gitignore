@@ -1,6 +1,7 @@
 .superpowers/
 dist/
 fritzbook-backup-*.xml
+fritzvcard-backup-*.xml
 
 # raw probe recordings stay out of git until reviewed
 /fritzprobe-*.txt

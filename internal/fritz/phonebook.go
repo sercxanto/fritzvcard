@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"fritzbook/internal/fbxml"
+	"fritzvcard/internal/fbxml"
 )
 
 // Phonebook identifies a phonebook on the box.

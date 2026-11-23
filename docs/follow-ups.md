@@ -13,7 +13,7 @@ non-blocking). Pick from here for future work; remove an item when it is done.
 
 ## CLI
 
-- `export` prints `fritzbook export: <err>`, `upload` prints `error: <err>`: unify the prefixes.
+- `export` prints `fritzvcard export: <err>`, `upload` prints `error: <err>`: unify the prefixes.
 - A declined prompt is reported as `error: aborted…` with exit 1.
 - `parseInterspersed` treats `--` as the separator even when it is a flag's value (`-o --`).
 - Backup wording differs: "Backup of the current phonebook" (stderr) vs "previous" (stdout).

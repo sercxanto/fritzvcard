@@ -8,7 +8,7 @@ import (
 )
 
 func writeExportFile(path string, write func(io.Writer) error) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".fritzbook-export-*")
+	f, err := os.CreateTemp(filepath.Dir(path), ".fritzvcard-export-*")
 	if err != nil {
 		return err
 	}

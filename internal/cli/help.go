@@ -21,7 +21,7 @@ func newCommandFlags(name, synopsis string, stderr io.Writer) commandFlags {
 }
 
 func (c commandFlags) writeHelp(w io.Writer) {
-	fmt.Fprintf(w, "usage: fritzbook %s%s\n\noptions:\n", c.Name(), c.synopsis)
+	fmt.Fprintf(w, "usage: fritzvcard %s%s\n\noptions:\n", c.Name(), c.synopsis)
 	fmt.Fprintln(w, "  -h  --help\tshow this help")
 	c.VisitAll(func(f *flag.Flag) {
 		prefix := "--"

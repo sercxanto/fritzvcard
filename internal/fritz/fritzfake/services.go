@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"fritzbook/internal/fritz"
+	"fritzvcard/internal/fritz"
 )
 
 const (
@@ -167,7 +167,7 @@ func (b *Box) handleImport(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(io.LimitReader(p, 1<<24))
 		names = append(names, p.FormName())
 		vals[p.FormName()] = data
-		if p.FormName() == "PhonebookImportFile" && (p.FileName() != "fritzbook.xml" || p.Header.Get("Content-Type") != "text/xml") {
+		if p.FormName() == "PhonebookImportFile" && (p.FileName() != "fritzvcard.xml" || p.Header.Get("Content-Type") != "text/xml") {
 			http.Error(w, "bad import file part", http.StatusBadRequest)
 			return
 		}

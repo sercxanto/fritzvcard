@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"fritzbook/internal/fbxml"
-	"fritzbook/internal/fritz"
-	"fritzbook/internal/fritz/fritzfake"
+	"fritzvcard/internal/fbxml"
+	"fritzvcard/internal/fritz"
+	"fritzvcard/internal/fritz/fritzfake"
 )
 
 const importXML = `<?xml version="1.0" encoding="utf-8"?><phonebooks><phonebook name="Test"><contact><person><realName>Probe Contact 1</realName></person></contact><contact><person><realName>Probe Contact 2</realName></person></contact></phonebook></phonebooks>`

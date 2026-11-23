@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"fritzbook/internal/fbxml"
+	"fritzvcard/internal/fbxml"
 )
 
 const fixture = "../../testdata/vcf/nextcloud-v3.vcf"
@@ -49,6 +49,25 @@ func TestExport_WritesFile(t *testing.T) {
 		t.Fatalf("stderr: %q", stderr)
 	}
 	checkOut(t, out)
+}
+
+func TestExport_TemporaryFileUsesProjectPrefix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.xml")
+	err := writeExportFile(path, func(w io.Writer) error {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), ".fritzvcard-export-") {
+			t.Errorf("temporary files: %v", entries)
+		}
+		_, err = io.WriteString(w, "export")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestExport_PrivateReplacement(t *testing.T) {
@@ -184,7 +203,7 @@ func TestExport_MissingFile(t *testing.T) {
 func TestVersion(t *testing.T) {
 	Version = "1.2.3"
 	code, stdout, _ := run(t, "version")
-	if code != 0 || stdout != "fritzbook 1.2.3\n" {
+	if code != 0 || stdout != "fritzvcard 1.2.3\n" {
 		t.Fatalf("exit %d, stdout %q", code, stdout)
 	}
 }

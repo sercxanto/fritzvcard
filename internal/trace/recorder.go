@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"fritzbook/internal/fbxml"
+	"fritzvcard/internal/fbxml"
 	"io"
 	"net/http"
 	"regexp"
