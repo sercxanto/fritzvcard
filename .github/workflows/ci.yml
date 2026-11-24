@@ -19,8 +19,29 @@ jobs:
         with:
           version: 3.54.0
       - run: task lint
-      - run: task test
+      - run: CGO_ENABLED=0 go test -coverpkg=./... -coverprofile=coverage.out ./...
       - run: task build:all VERSION=ci
+      - name: Check Codecov upload eligibility
+        id: coverage-upload
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          PUSH_REF: ${{ github.event.ref }}
+          PUSH_DELETED: ${{ github.event.deleted }}
+        run: |
+          # Actions expressions compare strings case-insensitively.
+          if [[ "$PUSH_REF" == refs/heads/main && "$PUSH_DELETED" == false ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload coverage to Codecov
+        if: steps.coverage-upload.outputs.enabled == 'true'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        continue-on-error: true
+        with:
+          files: ./coverage.out
+          disable_search: true
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   windows-export:
     runs-on: windows-latest

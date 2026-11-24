@@ -4,6 +4,7 @@ Convert vCard (`.vcf`) exports to FRITZ!Box phonebook XML. Export offline or upl
 from your computer. Nextcloud never needs your FRITZ!Box credentials.
 
 [![CI status](https://github.com/sercxanto/fritzvcard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sercxanto/fritzvcard/actions/workflows/ci.yml?query=branch%3Amain)
+[![Go coverage](https://codecov.io/gh/sercxanto/fritzvcard/branch/main/graph/badge.svg)](https://app.codecov.io/gh/sercxanto/fritzvcard/tree/main)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 [Installation](#installation) · [Quick Start](#quick-start) · [Upload](#upload-to-the-fritzbox-upload) · [Changelog](CHANGELOG.md)
