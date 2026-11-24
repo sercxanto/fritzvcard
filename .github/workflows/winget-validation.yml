@@ -2,7 +2,7 @@ name: Test WinGet manifest for v0.1.0
 
 on:
   push:
-    branches: [ci/winget-0.1.0]
+    branches: [winget-validation]
 
 permissions:
   contents: read
