@@ -30,18 +30,24 @@ jobs:
       - name: Update WinGet to the release that supports the catalog schema
         shell: pwsh
         run: |
-          $PSNativeCommandUseErrorActionPreference = $true
+          $PSNativeCommandUseErrorActionPreference = $false
           if ((winget --version) -ne "v$env:WINGET_VERSION") {
             winget upgrade --id Microsoft.AppInstaller --exact --version $env:WINGET_VERSION --source winget --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+            # WinGet can abort its own process when the update requires a restart.
+            if ($LASTEXITCODE -notin @(0, -2147467260)) {
+              throw "WinGet upgrade exited with $LASTEXITCODE"
+            }
           }
-          if ((winget --version) -ne "v$env:WINGET_VERSION") {
-            throw "Expected WinGet v$env:WINGET_VERSION"
-          }
+          exit 0
       - name: Validate and install with WinGet
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          winget --version
+          $version = winget --version
+          Write-Host "WinGet $version"
+          if ($version -ne "v$env:WINGET_VERSION") {
+            throw "Expected WinGet v$env:WINGET_VERSION"
+          }
           winget validate --manifest $env:FRITZVCARD_MANIFEST
           winget settings --enable LocalManifestFiles
           winget install --manifest $env:FRITZVCARD_MANIFEST --scope user --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
