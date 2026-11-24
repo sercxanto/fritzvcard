@@ -57,7 +57,7 @@ class PackageMetadataTests(unittest.TestCase):
         directory = self.output / "manifests/s/Sercxanto/Fritzvcard/1.2.3"
         for suffix, schema in (
             (".yaml", "version"),
-            (".locale.en-US.yaml", "defaultlocale"),
+            (".locale.en-US.yaml", "defaultLocale"),
             (".installer.yaml", "installer"),
         ):
             content = (directory / f"Sercxanto.Fritzvcard{suffix}").read_text()
