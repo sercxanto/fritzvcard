@@ -93,6 +93,8 @@ Installers:
     }
     return {
         f"{PACKAGE_ID}{suffix}": (
+            "# yaml-language-server: $schema=https://aka.ms/"
+            f"winget-manifest.{kind.lower()}.{MANIFEST_VERSION}.schema.json\n\n"
             f"{header}{body}ManifestType: {kind}\nManifestVersion: {MANIFEST_VERSION}\n"
         )
         for suffix, (kind, body) in manifests.items()
