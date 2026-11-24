@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 - 2026-11-24
+
 ### Added
 
 - Convert one or more vCard files to FRITZ!Box phonebook XML without connecting to the box.
