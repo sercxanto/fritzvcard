@@ -122,8 +122,14 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
 - All repository content is in English.
 - Commit messages follow Conventional Commits.
 - `task lint` must be clean before committing.
+- Record changes users need to know about under `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
+  Use sections such as `Added`, `Changed`, or `Fixed` as needed. Skip internal-only changes.
 
 ## Release
+
+Before tagging, move the release entries from `Unreleased` into a new
+`## X.Y.Z - YYYY-MM-DD` section directly below it. Leave `Unreleased` ready for future changes.
+Include the dated section in the commit you intend to tag.
 
 1. Make sure `task lint` and `task test` pass on the commit to release.
 2. Optional local check: `task build:all VERSION=vX.Y.Z` writes the five binaries to `dist/`
