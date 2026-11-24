@@ -127,15 +127,16 @@ code can be built from facts. A human runs it; agents never do (see AGENTS.md).
 
 ## Release
 
-Before tagging, move the release entries from `Unreleased` into a new
-`## X.Y.Z - YYYY-MM-DD` section directly below it. Leave `Unreleased` ready for future changes.
-Include the dated section in the commit you intend to tag.
+Before tagging, move the release entries from `Unreleased` into a new section directly
+below it, using a heading such as `## 0.1.0 - 2026-11-24` (without the tag's leading `v`).
+Leave `Unreleased` ready for future changes. Include the dated section in the commit
+you intend to tag.
 
 1. Make sure `task lint` and `task test` pass on the commit to release.
 2. Optional local check: `task build:all VERSION=vX.Y.Z` writes the five binaries to `dist/`
     (`fritzvcard-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64`,
     `-windows-amd64.exe`); `dist/fritzvcard-linux-amd64 version` (on Linux) prints the version.
-3. The human creates the GitHub repository (once) and pushes a tag `vX.Y.Z`:
+3. The maintainer pushes the release commit and then pushes a tag `vX.Y.Z` for that commit:
 
    ```sh
    git tag vX.Y.Z
@@ -144,7 +145,11 @@ Include the dated section in the commit you intend to tag.
 
 4. The release workflow (`.github/workflows/release.yml`) accepts only stable `vX.Y.Z`
    tags with three numeric components. Other `v*` tags fail before the build. On the
-   tagged commit it runs `task lint`, `task test`, then `task build:all VERSION=<tag>`.
-   Only if all three succeed does it publish the five binaries with the tag embedded as
-   their version and generate release notes.
-   CI (`.github/workflows/ci.yml`) runs lint, tests and the cross-build on every push and pull request.
+    tagged commit it extracts the matching version section from `CHANGELOG.md` and fails
+    if it is missing, empty, or duplicated. It then runs `task lint`, `task test`, and
+    `task build:all VERSION=<tag>`. On success it creates a GitHub Release with the changelog
+    section as its release notes and attaches the five binaries with the tag embedded as
+    their version.
+    CI (`.github/workflows/ci.yml`) runs lint, tests and the cross-build on every push and pull request.
+
+Run the release notes tests locally with `python3 -B -m unittest discover -s .github/scripts`.
