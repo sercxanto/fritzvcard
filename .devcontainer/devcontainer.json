@@ -1,17 +1,5 @@
 {
   "name": "fritzvcard",
   "image": "mcr.microsoft.com/devcontainers/go:2-1.27-trixie",
-  "features": {
-    "ghcr.io/devcontainers/features/node:1": {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
-  },
-  "mounts": [
-    "source=fritzbook-claude-config,target=/home/vscode/.claude,type=volume",
-    "source=fritzbook-history,target=/commandhistory,type=volume"
-  ],
-  "containerEnv": {
-    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    "HISTFILE": "/commandhistory/.bash_history"
-  },
-  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude /commandhistory && git config --global --add safe.directory \"${containerWorkspaceFolder}\" && go install github.com/go-task/task/v3/cmd/task@v3.54.0"
+  "postCreateCommand": "git config --global --add safe.directory \"${containerWorkspaceFolder}\" && go install github.com/go-task/task/v3/cmd/task@v3.54.0"
 }
