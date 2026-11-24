@@ -62,10 +62,11 @@ class PackageMetadataTests(unittest.TestCase):
         ):
             content = (directory / f"Sercxanto.Fritzvcard{suffix}").read_text()
             self.assertTrue(content.startswith(
-                f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{schema}.1.12.0.schema.json\n"
+                f"# yaml-language-server: $schema=https://aka.ms/winget-manifest.{schema}.1.10.0.schema.json\n"
             ))
             self.assertIn("PackageIdentifier: Sercxanto.Fritzvcard\n", content)
             self.assertIn("PackageVersion: 1.2.3\n", content)
+            self.assertIn("ManifestVersion: 1.10.0\n", content)
         installer = (directory / "Sercxanto.Fritzvcard.installer.yaml").read_text()
         for field in (
             f"InstallerUrl: {BASE_URL}{WINDOWS_ASSET}",

@@ -10,7 +10,9 @@ from package_release import ARCHIVES
 PROJECT_URL = "https://github.com/sercxanto/fritzvcard"
 PACKAGE_ID = "Sercxanto.Fritzvcard"
 DESCRIPTION = "Convert vCard files to FRITZ!Box phonebook XML"
-MANIFEST_VERSION = "1.12.0"
+# WinGet 1.11 validates against its embedded 1.10 schema, which supports
+# portable executables in ZIP archives.
+MANIFEST_VERSION = "1.10.0"
 
 
 def read_checksums(path: Path) -> dict[str, str]:
