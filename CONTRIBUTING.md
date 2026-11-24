@@ -133,9 +133,13 @@ Leave `Unreleased` ready for future changes. Include the dated section in the co
 you intend to tag.
 
 1. Make sure `task lint` and `task test` pass on the commit to release.
-2. Optional local check: `task build:all VERSION=vX.Y.Z` writes the five binaries to `dist/`
-    (`fritzvcard-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64`,
-    `-windows-amd64.exe`); `dist/fritzvcard-linux-amd64 version` (on Linux) prints the version.
+2. Optional local check (replace `vX.Y.Z` with the release tag):
+
+   ```sh
+   task build:all VERSION=vX.Y.Z
+   python3 -B .github/scripts/package_release.py dist
+   (cd dist && sha256sum --check SHA256SUMS)
+   ```
 3. The maintainer pushes the release commit and then pushes a tag `vX.Y.Z` for that commit:
 
    ```sh
@@ -148,8 +152,60 @@ you intend to tag.
     tagged commit it extracts the matching version section from `CHANGELOG.md` and fails
     if it is missing, empty, or duplicated. It then runs `task lint`, `task test`, and
     `task build:all VERSION=<tag>`. On success it creates a GitHub Release with the changelog
-    section as its release notes and attaches the five binaries with the tag embedded as
-    their version.
-    CI (`.github/workflows/ci.yml`) runs lint, tests and the cross-build on every push and pull request.
+     section as its release notes and attaches five archives with the tag embedded in
+     their binaries: `fritzvcard-linux-amd64.tar.gz`, `fritzvcard-linux-arm64.tar.gz`,
+     `fritzvcard-darwin-amd64.tar.gz`, `fritzvcard-darwin-arm64.tar.gz`, and
+     `fritzvcard-windows-amd64.zip`, plus `SHA256SUMS`.
+     CI (`.github/workflows/ci.yml`) runs lint, tests, the cross-build, and archive and
+     checksum checks on every push and pull request.
 
-Run the release notes tests locally with `python3 -B -m unittest discover -s .github/scripts`.
+Run the release script tests locally with `python3 -B -m unittest discover -s .github/scripts`.
+
+### Update Homebrew and WinGet
+
+After the GitHub Release is public, download its archives and `SHA256SUMS` into a
+fresh directory. From this repository, replace `vX.Y.Z` with the actual tag:
+
+```sh
+tag=vX.Y.Z
+release_dir=$(mktemp -d)
+gh release download "$tag" --repo sercxanto/fritzvcard --dir "$release_dir"
+(cd "$release_dir" && sha256sum --check SHA256SUMS)
+```
+
+On macOS, use `shasum -a 256 -c SHA256SUMS` in place of the `sha256sum` command.
+Stop if verification fails. Then generate the package definitions:
+
+```sh
+python3 -B .github/scripts/package_metadata.py "$tag" "$release_dir/SHA256SUMS" "$release_dir/packages"
+```
+
+1. **Homebrew:** Copy `packages/Formula/fritzvcard.rb` into `Formula/` in a local
+   checkout of the `sercxanto/homebrew-fritzvcard` tap and commit the formula there.
+   On macOS and Linux, use a test environment without an existing `fritzvcard`
+   installation or tap. Point Homebrew at that local checkout for testing:
+
+   ```sh
+   brew tap sercxanto/fritzvcard /absolute/path/to/homebrew-fritzvcard
+   brew install sercxanto/fritzvcard/fritzvcard
+   brew test sercxanto/fritzvcard/fritzvcard
+   fritzvcard version
+   ```
+
+   Check that the output is `fritzvcard vX.Y.Z`. After testing, push the formula
+   to the public tap (create the tap repository for the first release). Confirm
+   the fully qualified install again from a clean Homebrew installation using
+   the public repository rather than the local checkout.
+2. **WinGet:** On Windows, run `winget validate` against the generated
+   `packages/manifests/s/Sercxanto/Fritzvcard/X.Y.Z/` directory. Use
+   [Microsoft's Windows Sandbox test procedure](https://learn.microsoft.com/en-us/windows/package-manager/package/repository#step-2-test-your-manifest-with-windows-sandbox)
+   to install the local manifest, then check that `fritzvcard version` prints
+   `fritzvcard vX.Y.Z`. Submit the generated version directory as a pull request
+   to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). After the
+   catalog updates, confirm `winget install --id Sercxanto.Fritzvcard --exact`
+   and `fritzvcard version` on a clean Windows installation. The direct ZIP
+   download remains available while the submission is in review.
+
+Add each package-manager command to the README only after its public install
+and version check succeed. Repeat the formula and manifest updates for each
+release; neither the tap nor the catalog hosts a separate copy of the binary.
