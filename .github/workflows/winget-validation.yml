@@ -1,0 +1,47 @@
+name: Test WinGet manifest for v0.1.0
+
+on:
+  push:
+    branches: [ci/winget-0.1.0]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-install:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      TAG: v0.1.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare the released manifest
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $root = Join-Path $env:RUNNER_TEMP 'fritzvcard-winget'
+          New-Item -ItemType Directory -Path $root | Out-Null
+          $sums = Join-Path $root 'SHA256SUMS'
+          Invoke-WebRequest "https://github.com/sercxanto/fritzvcard/releases/download/$env:TAG/SHA256SUMS" -OutFile $sums
+          python -B .github/scripts/package_metadata.py $env:TAG $sums $root
+          $manifest = Join-Path $root "manifests/s/Sercxanto/Fritzvcard/$($env:TAG.Substring(1))"
+          "FRITZVCARD_MANIFEST=$manifest" >> $env:GITHUB_ENV
+      - name: Validate and install with WinGet
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          winget --version
+          winget validate --manifest $env:FRITZVCARD_MANIFEST
+          winget settings --enable LocalManifestFiles
+          winget install --manifest $env:FRITZVCARD_MANIFEST --scope user --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+      - name: Check the installed command and version
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:Path += ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          $command = Get-Command fritzvcard -CommandType Application
+          $version = (& $command version | Out-String).Trim()
+          Write-Host "$($command.Path): $version"
+          if ($version -cne "fritzvcard $env:TAG") {
+            throw "Expected fritzvcard $env:TAG, got '$version'"
+          }
