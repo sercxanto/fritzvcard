@@ -1,22 +1,22 @@
 # fritzvcard
 
-`fritzvcard` converts vCard (`.vcf`) files, for example a Nextcloud address book export, into a
-FRITZ!Box phonebook and can upload the result to the box. It is a single binary without
-runtime dependencies.
+Convert vCard (`.vcf`) exports to FRITZ!Box phonebook XML. Export offline or upload directly
+from your computer. Nextcloud never needs your FRITZ!Box credentials.
 
-Why it exists: Nextcloud does not need your FRITZ!Box credentials, and the FRITZ!Box does not
-need to be reachable from Nextcloud. You run `fritzvcard` on your own computer inside your home
-network, so no credentials are stored on the box or on a server.
+[![CI status](https://github.com/sercxanto/fritzvcard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sercxanto/fritzvcard/actions/workflows/ci.yml?query=branch%3Amain)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Upload was tested with a separately created phonebook on a FRITZ!Box 6690 Cable
-(FRITZ!OS 267.08.25).
+[Installation](#installation) · [Quick Start](#quick-start) · [Upload](#upload-to-the-fritzbox-upload) · [Changelog](CHANGELOG.md)
 
 ## Installation
 
-Download the binary for your system from the
-[Releases](../../releases) page. Assets are named `fritzvcard-<os>-<arch>[.exe]`, for example
-`fritzvcard-linux-amd64`, `fritzvcard-darwin-arm64` or `fritzvcard-windows-amd64.exe`
-(operating systems: linux, darwin = macOS, windows; architectures: amd64, arm64).
+`fritzvcard` is a single binary with no runtime dependencies. When downloads are available,
+get the binary for your system from [Releases](../../releases). Builds cover Linux and macOS
+(amd64 and arm64) and Windows (amd64), with names like `fritzvcard-linux-amd64`,
+`fritzvcard-darwin-arm64`, and `fritzvcard-windows-amd64.exe`.
+
+If there are no releases yet, clone the repository and run `task build` from the project
+root. It writes the binary to `dist/fritzvcard`. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup.
 
 Make it executable on Linux and macOS (`chmod +x fritzvcard-darwin-arm64`). macOS blocks
 downloaded binaries; remove the quarantine flag once:
@@ -25,9 +25,24 @@ downloaded binaries; remove the quarantine flag once:
 xattr -d com.apple.quarantine fritzvcard-darwin-arm64
 ```
 
-`fritzvcard version` prints the version. The examples below call the binary `fritzvcard`.
+The examples assume the binary is installed on your `PATH` as `fritzvcard`. Otherwise, use
+its path, for example `./dist/fritzvcard` after building from source.
+`fritzvcard version` prints the version.
 Run `fritzvcard --help` to list the commands. Use `fritzvcard upload --help` or
 `fritzvcard --help upload` to see the upload options and their defaults.
+
+## Quick Start
+
+Start with a `.vcf` file, such as a [Nextcloud address book export](#export-contacts-from-nextcloud).
+Convert it to XML without connecting to the FRITZ!Box:
+
+```sh
+fritzvcard export -o phonebook.xml contacts.vcf
+```
+
+In the FRITZ!Box web interface, open **Telephony → Phonebook**. Back up the target phonebook
+before importing `phonebook.xml` to replace its contents.
+You can also [upload directly](#upload-to-the-fritzbox-upload) instead.
 
 ## Export contacts from Nextcloud
 
@@ -42,6 +57,9 @@ fritzvcard export [-o file] [--name name] <file.vcf>...
 
 `-o` is the output file (default `-`, standard output); `--name` is the phonebook name
 (default `Nextcloud`). You can pass several `.vcf` files. A summary goes to standard error.
+
+<details>
+<summary>Example XML output</summary>
 
 ```console
 $ fritzvcard export contacts.vcf
@@ -68,9 +86,12 @@ Converted 2 contacts (3 numbers).
 </phonebooks>
 ```
 
-You can import the XML file yourself in the FRITZ!Box web interface (Telephony > Phonebook).
+</details>
 
 ## Upload to the FRITZ!Box: `upload`
+
+Upload was tested with a separately created phonebook on a FRITZ!Box 6690 Cable
+(FRITZ!OS 267.08.25).
 
 ### Prepare the FRITZ!Box
 
@@ -81,9 +102,9 @@ You can import the XML file yourself in the FRITZ!Box web interface (Telephony >
 - Create the target phonebook in the web interface first (Telephony > Phonebook). The tool never
   creates phonebooks.
 
-Warning: the upload REPLACES the content of the target phonebook completely.
-
 ### Run it
+
+**Warning: Upload replaces the entire target phonebook.**
 
 ```sh
 export FRITZBOX_USER=phonebook
