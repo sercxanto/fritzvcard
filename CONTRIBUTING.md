@@ -133,9 +133,13 @@ Leave `Unreleased` ready for future changes. Include the dated section in the co
 you intend to tag.
 
 1. Make sure `task lint` and `task test` pass on the commit to release.
-2. Optional local check: `task build:all VERSION=vX.Y.Z` writes the five binaries to `dist/`
-    (`fritzvcard-linux-amd64`, `-linux-arm64`, `-darwin-amd64`, `-darwin-arm64`,
-    `-windows-amd64.exe`); `dist/fritzvcard-linux-amd64 version` (on Linux) prints the version.
+2. Optional local check (replace `vX.Y.Z` with the release tag):
+
+   ```sh
+   task build:all VERSION=vX.Y.Z
+   python3 -B .github/scripts/package_release.py dist
+   (cd dist && sha256sum --check SHA256SUMS)
+   ```
 3. The maintainer pushes the release commit and then pushes a tag `vX.Y.Z` for that commit:
 
    ```sh
@@ -148,8 +152,11 @@ you intend to tag.
     tagged commit it extracts the matching version section from `CHANGELOG.md` and fails
     if it is missing, empty, or duplicated. It then runs `task lint`, `task test`, and
     `task build:all VERSION=<tag>`. On success it creates a GitHub Release with the changelog
-    section as its release notes and attaches the five binaries with the tag embedded as
-    their version.
-    CI (`.github/workflows/ci.yml`) runs lint, tests and the cross-build on every push and pull request.
+     section as its release notes and attaches five archives with the tag embedded in
+     their binaries: `fritzvcard-linux-amd64.tar.gz`, `fritzvcard-linux-arm64.tar.gz`,
+     `fritzvcard-darwin-amd64.tar.gz`, `fritzvcard-darwin-arm64.tar.gz`, and
+     `fritzvcard-windows-amd64.zip`, plus `SHA256SUMS`.
+     CI (`.github/workflows/ci.yml`) runs lint, tests, the cross-build, and archive and
+     checksum checks on every push and pull request.
 
-Run the release notes tests locally with `python3 -B -m unittest discover -s .github/scripts`.
+Run the release script tests locally with `python3 -B -m unittest discover -s .github/scripts`.

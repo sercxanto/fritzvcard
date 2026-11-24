@@ -11,24 +11,46 @@ from your computer. Nextcloud never needs your FRITZ!Box credentials.
 
 ## Installation
 
-`fritzvcard` is a single binary with no runtime dependencies. When downloads are available,
-get the binary for your system from [Releases](../../releases). Builds cover Linux and macOS
-(amd64 and arm64) and Windows (amd64), with names like `fritzvcard-linux-amd64`,
-`fritzvcard-darwin-arm64`, and `fritzvcard-windows-amd64.exe`.
+`fritzvcard` is a single binary with no runtime dependencies. Download the archive for
+your system and `SHA256SUMS` from the same [GitHub Release](../../releases):
 
-If there are no releases yet, clone the repository and run `task build` from the project
-root. It writes the binary to `dist/fritzvcard`. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup.
+| System | Archive |
+| --- | --- |
+| macOS, Apple silicon | `fritzvcard-darwin-arm64.tar.gz` |
+| macOS, Intel | `fritzvcard-darwin-amd64.tar.gz` |
+| Linux, x86-64 | `fritzvcard-linux-amd64.tar.gz` |
+| Linux, ARM64 | `fritzvcard-linux-arm64.tar.gz` |
+| Windows, x64 | `fritzvcard-windows-amd64.zip` |
 
-Make it executable on Linux and macOS (`chmod +x fritzvcard-darwin-arm64`). macOS blocks
-downloaded binaries; remove the quarantine flag once:
+**macOS and Linux:** Replace the archive name below with the one you downloaded.
+Compare the printed SHA-256 hash with its entry in `SHA256SUMS` before extracting.
 
 ```sh
-xattr -d com.apple.quarantine fritzvcard-darwin-arm64
+shasum -a 256 fritzvcard-darwin-arm64.tar.gz # on Linux, sha256sum also works
+tar -xzf fritzvcard-darwin-arm64.tar.gz
+./fritzvcard version
 ```
 
-The examples assume the binary is installed on your `PATH` as `fritzvcard`. Otherwise, use
-its path, for example `./dist/fritzvcard` after building from source.
-`fritzvcard version` prints the version.
+If macOS blocks the binary, see Apple's [guidance for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
+Only make an exception for this file if you trust the project and have verified the download.
+
+**Windows (PowerShell):** Compare the printed hash with the ZIP's entry in `SHA256SUMS`
+before extracting. Hash comparison is case-insensitive.
+
+```powershell
+Get-FileHash .\fritzvcard-windows-amd64.zip -Algorithm SHA256
+Expand-Archive .\fritzvcard-windows-amd64.zip -DestinationPath .\fritzvcard
+.\fritzvcard\fritzvcard.exe version
+```
+
+To run `fritzvcard` from any directory, put the binary in a directory already on
+your `PATH` or add its directory to your user `PATH`. Otherwise, use the executable
+path shown above in place of `fritzvcard` in the examples below.
+
+**Build from source:** If no releases are available, clone the repository and run
+`task build` from the project root. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup.
+On macOS and Linux, run the result as `./dist/fritzvcard`.
+
 Run `fritzvcard --help` to list the commands. Use `fritzvcard upload --help` or
 `fritzvcard --help upload` to see the upload options and their defaults.
 
