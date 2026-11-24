@@ -11,8 +11,21 @@ from your computer. Nextcloud never needs your FRITZ!Box credentials.
 
 ## Installation
 
-`fritzvcard` is a single binary with no runtime dependencies. Download the archive for
-your system and `SHA256SUMS` from the same [GitHub Release](../../releases):
+### Homebrew (macOS and Linux)
+
+If you already have [Homebrew](https://brew.sh/), install from the
+[fritzvcard tap](https://github.com/sercxanto/homebrew-fritzvcard):
+
+```sh
+brew install sercxanto/fritzvcard/fritzvcard
+fritzvcard version
+```
+
+### Direct download
+
+`fritzvcard` is a single binary with no runtime dependencies. On Windows, or if
+you prefer not to use Homebrew, download the archive for your system and
+`SHA256SUMS` from the same [GitHub Release](../../releases):
 
 | System | Archive |
 | --- | --- |
