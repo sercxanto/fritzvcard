@@ -14,12 +14,14 @@ from your computer. Nextcloud never needs your FRITZ!Box credentials.
 ### Homebrew (macOS and Linux)
 
 If you already have [Homebrew](https://brew.sh/), install from the
-[fritzvcard tap](https://github.com/sercxanto/homebrew-fritzvcard):
+[sercxanto tap](https://github.com/sercxanto/homebrew-tap):
 
 ```sh
-brew install sercxanto/fritzvcard/fritzvcard
+brew install sercxanto/tap/fritzvcard
 fritzvcard version
 ```
+
+Later updates arrive with `brew upgrade fritzvcard`.
 
 ### Direct download
 

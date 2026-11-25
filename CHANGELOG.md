@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- The Homebrew tap is now `sercxanto/tap`: install with `brew install sercxanto/tap/fritzvcard`.
+  Existing installations from `sercxanto/fritzvcard` keep receiving updates.
+
 ## 0.1.0 - 2026-11-24
 
 ### Added
