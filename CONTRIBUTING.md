@@ -63,6 +63,7 @@ internal/cli/                     export / upload / version commands
 testdata/vcf/                     synthetic vCard fixtures
 testdata/probe/                   reviewed recordings (optional, only if the owner decides)
 docs/superpowers/                 design specs and implementation plans
+packaging/homebrew-tap/           workflow and README for the sercxanto/homebrew-tap repository
 .github/workflows/ci.yml, release.yml
 ```
 
@@ -161,7 +162,40 @@ you intend to tag.
 
 Run the release script tests locally with `python3 -B -m unittest discover -s .github/scripts`.
 
-### Update Homebrew and WinGet
+### Update Homebrew
+
+The `sercxanto/homebrew-tap` repository updates its formula itself. Its
+`Update fritzvcard` workflow runs daily, picks up the latest stable release,
+downloads its archives and `SHA256SUMS`, verifies them, and generates
+`Formula/fritzvcard.rb` with `.github/scripts/package_metadata.py` from the
+release tag. It installs and tests the formula on macOS and Linux (Intel and ARM)
+and commits it only if every test passes. It uses the tap's own `GITHUB_TOKEN`;
+this repository holds no secret for the tap.
+
+After the GitHub Release is public, start the workflow instead of waiting for
+the schedule, then check that it succeeded:
+
+```sh
+gh workflow run update-fritzvcard.yml --repo sercxanto/homebrew-tap
+gh run watch --repo sercxanto/homebrew-tap
+```
+
+To regenerate the formula for a specific release, pass `-f tag=vX.Y.Z`.
+GitHub disables scheduled workflows in a public repository after 60 days
+without activity; starting the workflow by hand after each release keeps it
+running, or re-enable it from the tap's Actions tab.
+
+The workflow and the tap's README live in [`packaging/homebrew-tap/`](packaging/homebrew-tap).
+Edit them here and copy changes into the tap repository.
+
+**One-time tap setup.** Rename the former `sercxanto/homebrew-fritzvcard`
+repository to `sercxanto/homebrew-tap` in its GitHub settings, so that existing
+`sercxanto/fritzvcard` taps keep updating through GitHub's redirect. Do not
+create a new repository under the old name; that would break the redirect. Copy
+the contents of `packaging/homebrew-tap/` into the tap and push. In the tap's
+Actions settings, allow workflows to run, then start the workflow once.
+
+### Update WinGet
 
 After the GitHub Release is public, download its archives and `SHA256SUMS` into a
 fresh directory. From this repository, replace `vX.Y.Z` with the actual tag:
@@ -180,32 +214,16 @@ Stop if verification fails. Then generate the package definitions:
 python3 -B .github/scripts/package_metadata.py "$tag" "$release_dir/SHA256SUMS" "$release_dir/packages"
 ```
 
-1. **Homebrew:** Copy `packages/Formula/fritzvcard.rb` into `Formula/` in a local
-   checkout of the `sercxanto/homebrew-fritzvcard` tap and commit the formula there.
-   On macOS and Linux, use a test environment without an existing `fritzvcard`
-   installation or tap. Point Homebrew at that local checkout for testing:
-
-   ```sh
-   brew tap sercxanto/fritzvcard /absolute/path/to/homebrew-fritzvcard
-   brew install sercxanto/fritzvcard/fritzvcard
-   brew test sercxanto/fritzvcard/fritzvcard
-   fritzvcard version
-   ```
-
-   Check that the output is `fritzvcard vX.Y.Z`. After testing, push the formula
-   to the public tap (create the tap repository for the first release). Confirm
-   the fully qualified install again from a clean Homebrew installation using
-   the public repository rather than the local checkout.
-2. **WinGet:** On Windows, run `winget validate` against the generated
-   `packages/manifests/s/Sercxanto/Fritzvcard/X.Y.Z/` directory. Use
-   [Microsoft's Windows Sandbox test procedure](https://learn.microsoft.com/en-us/windows/package-manager/package/repository#step-2-test-your-manifest-with-windows-sandbox)
-   to install the local manifest, then check that `fritzvcard version` prints
-   `fritzvcard vX.Y.Z`. Submit the generated version directory as a pull request
-   to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). After the
-   catalog updates, confirm `winget install --id Sercxanto.Fritzvcard --exact`
-   and `fritzvcard version` on a clean Windows installation. The direct ZIP
-   download remains available while the submission is in review.
+On Windows, run `winget validate` against the generated
+`$release_dir/packages/manifests/s/Sercxanto/Fritzvcard/X.Y.Z/` directory. Use
+[Microsoft's Windows Sandbox test procedure](https://learn.microsoft.com/en-us/windows/package-manager/package/repository#step-2-test-your-manifest-with-windows-sandbox)
+to install the local manifest, then check that `fritzvcard version` prints
+`fritzvcard vX.Y.Z`. Submit the generated version directory as a pull request
+to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). After the
+catalog updates, confirm `winget install --id Sercxanto.Fritzvcard --exact`
+and `fritzvcard version` on a clean Windows installation. The direct ZIP
+download remains available while the submission is in review.
 
 Add each package-manager command to the README only after its public install
-and version check succeed. Repeat the formula and manifest updates for each
-release; neither the tap nor the catalog hosts a separate copy of the binary.
+and version check succeed. Repeat the manifest submission for each release;
+neither the tap nor the catalog hosts a separate copy of the binary.
