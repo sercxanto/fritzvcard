@@ -63,7 +63,6 @@ internal/cli/                     export / upload / version commands
 testdata/vcf/                     synthetic vCard fixtures
 testdata/probe/                   reviewed recordings (optional, only if the owner decides)
 docs/superpowers/                 design specs and implementation plans
-packaging/homebrew-tap/           workflow and README for the sercxanto/homebrew-tap repository
 .github/workflows/ci.yml, release.yml
 ```
 
@@ -171,6 +170,9 @@ downloads its archives and `SHA256SUMS`, verifies them, and generates
 release tag. It installs and tests the formula on macOS and Linux (Intel and ARM)
 and commits it only if every test passes. It uses the tap's own `GITHUB_TOKEN`;
 this repository holds no secret for the tap.
+Because the tap runs the script from each release tag, keep its command line
+(`package_metadata.py <tag> <SHA256SUMS> <output dir>`) and its output path
+`Formula/fritzvcard.rb` stable.
 
 After the GitHub Release is public, start the workflow instead of waiting for
 the schedule, then check that it succeeded:
@@ -185,15 +187,11 @@ GitHub disables scheduled workflows in a public repository after 60 days
 without activity; starting the workflow by hand after each release keeps it
 running, or re-enable it from the tap's Actions tab.
 
-The workflow and the tap's README live in [`packaging/homebrew-tap/`](packaging/homebrew-tap).
-Edit them here and copy changes into the tap repository.
-
 **One-time tap setup.** Rename the former `sercxanto/homebrew-fritzvcard`
 repository to `sercxanto/homebrew-tap` in its GitHub settings, so that existing
 `sercxanto/fritzvcard` taps keep updating through GitHub's redirect. Do not
-create a new repository under the old name; that would break the redirect. Copy
-the contents of `packaging/homebrew-tap/` into the tap and push. In the tap's
-Actions settings, allow workflows to run, then start the workflow once.
+create a new repository under the old name; that would break the redirect.
+After the rename, start the workflow once.
 
 ### Update WinGet
 
