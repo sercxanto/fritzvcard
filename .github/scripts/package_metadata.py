@@ -10,7 +10,8 @@ from package_release import ARCHIVES
 PROJECT_URL = "https://github.com/sercxanto/fritzvcard"
 PACKAGE_ID = "Sercxanto.Fritzvcard"
 DESCRIPTION = "Convert vCard files to FRITZ!Box phonebook XML"
-MANIFEST_VERSION = "1.12.0"
+# Schema requested by the WinGet community repository submission checklist.
+MANIFEST_VERSION = "1.28.0"
 
 
 def read_checksums(path: Path) -> dict[str, str]:
@@ -93,6 +94,8 @@ Installers:
     }
     return {
         f"{PACKAGE_ID}{suffix}": (
+            "# yaml-language-server: $schema=https://aka.ms/"
+            f"winget-manifest.{kind}.{MANIFEST_VERSION}.schema.json\n\n"
             f"{header}{body}ManifestType: {kind}\nManifestVersion: {MANIFEST_VERSION}\n"
         )
         for suffix, (kind, body) in manifests.items()
